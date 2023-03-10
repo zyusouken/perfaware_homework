@@ -4,147 +4,297 @@
 #define DEBUG_PRINT if(DEBUG)printf
 bool DEBUG=1;
 
-void fillRegName(char regChars[], char regBits, bool W);
-void fillRmName(char rmChars[], char rmBits, char modBits, bool W);
+enum //Instruction types, in the order they appear in the 8086 manual
+{
+	MOV_RM_TOFROM_REG,
+	MOV_IMMED_TO_RM,
+	MOV_IMMED_TO_REG,
+	MOV_MEM_TO_ACC,
+	MOV_ACC_TO_MEM,
+	MOV_RM_TO_SEGREG,
+	MOV_SEGREG_TO_RM
+};
 
-int main(int argc, char **argv)
+char modMsgs[4][64]=
+{
+	"  MOD is: 00 (Mem Mode, no disp)\n",
+	"  MOD is: 01 (Mem Mode, 8-bit disp)\n",
+	"  MOD is: 10 (Mem Mode, 16-bit disp)\n",
+	"  MOD is: 11 (Reg Mode, no disp)\n"
+};
+
+void printBits(unsigned char *startP, int size, int columns);
+void fillRegName(char regName[], char regBits, bool W);
+void fillRmName(char rmName[], char rmBits, char modBits, bool W, short disp);
+short shortValFromUCharP(unsigned char *charP);
+
+int main(int argc, char *argv[])
 {
 	//Get file(s)
 	FILE *fInP = fopen(argv[1], "rb");
 	FILE *fOutP = fopen(argv[2], "w");
 
-	//Get file size
+	//Get file in size
 	fseek(fInP, 0L, SEEK_END); //Set file position to end
 	int fInSz = ftell(fInP); //Store position (size)
 	fseek(fInP, 0L, SEEK_SET);//Return to start of file
-	DEBUG_PRINT("File IN size is %i.\n", fInSz);
 
 	//Get file contents
 	unsigned char inBytes[fInSz];
-	for(int i=0; i<fInSz; i++)
+	for(int i=0 ; i<fInSz ; i++)
 	{
 		inBytes[i] = fgetc(fInP);
 	}
-	//instructP points to the bottom byte of our working instruction
-	unsigned char *instructP = inBytes;
+	
+	//instrP points to the first byte of the instruction being disassembled
+	unsigned char *instrP = inBytes;
+
+	//In debug mode, print entire bin contents as 0s and 1s, in 4 columns.
+	DEBUG_PRINT("\n\"%s\" bin size is %i. Contents:\n\n", argv[1], fInSz);
+	if(DEBUG){printBits(instrP, fInSz, 4);}
+	DEBUG_PRINT("\n\n");
+	
+	//Prep vars
+	int instrsProcessed=0;
+	int bytesProcessed=0;
+	short instrSz;
+	short instrType;
+	bool D;
+	bool W;
+	short dispDirAVal; //For disp and DIRECT ACCESS
+	short dispSz;
+	short dataVal;
+	//short dataSz;
+	unsigned char modBits;
+	unsigned char regBits;
+	unsigned char rmBits;
+	char regName[3]; //Human-readable REG operand
+	char rmName[32]; //Human-readable R/M operand
+	char instrString[32];
 
 	//WRITE bit width directive to output file
-	//(We just do this literally with no logic needed, right?)
 	fprintf(fOutP, "%s", "bits 16\n");
-
-	//Disassemble all instructions and write to file
-	int instructionsProcessed=0;
-	int bytesProcessed=0;
-	int currentInstructionLength;
+	
 	while(bytesProcessed < fInSz)
-	{
+	{///Each iteration disassembles one instruction
+		
 		//WRITE newline to file for every instruction after the first
 		if(bytesProcessed)fprintf(fOutP, "%c", '\n');
 
-		DEBUG_PRINT("Beginning work on instruction %i.\n", instructionsProcessed);
+		DEBUG_PRINT("Beginning work on instruction %i. ", instrsProcessed+1);
+		DEBUG_PRINT("First byte: ");
+		if(DEBUG){printBits(instrP, 1, 0);}
+		DEBUG_PRINT("\n");
 		
-		//Select mnemonic type
-		if(instructP[0]>>4 == 0b1011)
-		{///MOV (Immediate to register) MnemWReg Datadata
-			DEBUG_PRINT("  Mnemonic was recognized as 1011! (MOV) [Writing...]\n");
-			fprintf(fOutP, "%s", "mov "); //write mnemonic name to file
-			
-			//Prep variables
-			bool W = ( (instructP[0]&0b00001000) >>3);
-			char regChars[3]; //Human-readable REG operand chars
-			
-			//REG
-			fillRegName(regChars, (instructP[1]&0b00111000)>>3, W);
-			DEBUG_PRINT("  REG is: %c%c\n", regChars[0], regChars[1]);
+		//Determine instruction type (See table 4.12 on page 4.22 in the 8086 manual.)
+		if(      (instrP[0]&0b11111100) == 0b10001000){instrType = MOV_RM_TOFROM_REG;} ///100010DW
+		else if( (instrP[0]&0b11111110) == 0b11000110){instrType = MOV_IMMED_TO_RM;} ///1100011W
+		else if( (instrP[0]&0b11110000) == 0b10110000){instrType = MOV_IMMED_TO_REG;} ///1011WReg
+		else if( (instrP[0]&0b11111110) == 0b10100000){instrType = MOV_MEM_TO_ACC;} ///1010000w
+		else if( (instrP[0]&0b11111110) == 0b10100010){instrType = MOV_ACC_TO_MEM;} ///1010001w
+		//else if( (instrP[0]&0b11111111) == 0b10001110){instrType = MOV_RM_TO_SEGREG;}
+		//else if( (instrP[0]&0b11111111) == 0b10001100){instrType = MOV_SEGREG_TO_RM;}
+		else
+		{
+			printf("ERROR: Unrecognized instruction byte: ");
+			printBits(instrP, 1, 0);
+			printf("\nBytes processed: %i\n[Terminating...]\n", bytesProcessed); 
+			return 1;
 		}
-		else if(*instructP>>2 == 0b100010) 
-		{///MOV (Register/memory to/from register) MnemonDW MdRegR/m
-			DEBUG_PRINT("  Mnemonic was recognized as 100010! (MOV, REG<>REG/MEM) [Writing...]\n");
-			fprintf(fOutP, "%s", "mov "); //WRITE mnemonic name to file
+
+		//Process this instruction (Implementations are in same order as 8086 manual from p4.22)
+		if(instrType == MOV_RM_TOFROM_REG)
+		{///MOV_RM_TOFROM_REG
+			DEBUG_PRINT("  Instruction identified: (MOV_RM_TOFROM_REG)\n");
+			DEBUG_PRINT("  Instruction format: 100010DW MdRegR/m (DISP-LO) (DISP-HI)\n");
 			
-			//Prep for operand parsing
-			bool D = (instructP[0] & 0b00000010);
-			bool W = (instructP[0] & 0b00000001);
+			//Prep vars for operand parsing
+			D = (instrP[0] & 0b00000010);
+			W = (instrP[0] & 0b00000001);
+			modBits = instrP[1]>>6;
+			dispSz = modBits%3;
+			instrSz = 2 + dispSz;
+			regBits = (instrP[1]&0b00111000)>>3;
+			rmBits = (instrP[1]&0b00000111);
+			dispDirAVal = 0;
+			DEBUG_PRINT(modMsgs[modBits]);
 			DEBUG_PRINT("  %s\n", D?"(D) MOV REG, R/M":"(!D) MOV R/M, REG");
 			DEBUG_PRINT("  %s\n", W?"(W) MOV 2 bytes":"(!W) MOV 1 byte");
-			char regChars[3]; //Human-readable REG operand chars
-			char rmChars[69]; //Human-readable R/M operand chars
 			
-			//MOD detection
-			switch( instructP[1] >> 6 )
+			//DISP
+			if(modBits == 0b01)
 			{
-				case 0b00:
-				{
-					DEBUG_PRINT("  MOD 00.\n");
-				}break;
-				case 0b01:
-				{
-					DEBUG_PRINT("  MOD 01.\n");
-				}break;
-				case 0b10:
-				{
-					DEBUG_PRINT("  MOD 10.\n");
-				}break;
-				case 0b11:
-				{
-					DEBUG_PRINT("  MOD 11.\n");
-				}break;
-				default:
-				{
-					printf("ERROR: Unrecognized MOD. Terminating...\n");
-					return 1;
-				}
+				dispDirAVal = (char)instrP[2];
+			}
+			else if(modBits == 0b10)
+			{
+				dispDirAVal = shortValFromUCharP(instrP+2);
+			}
+			else if(modBits==0b00 && rmBits==0b110)
+			{
+				//Special DIRECT ACCESS case
+				instrSz+=2;
+				dispDirAVal = shortValFromUCharP(instrP+2);
 			}
 			
 			//REG name generation
-			fillRegName(regChars, (instructP[1]&0b00111000)>>3, W);
-			DEBUG_PRINT("  REG is: %c%c\n", regChars[0], regChars[1]);
+			fillRegName(regName, regBits, W);
 			
-			//R/M name generation
-			fillRmName(rmChars, (instructP[1]&0b00000111), (instructP[1]>>6), W);
-			DEBUG_PRINT("  R/M is: %c%c\n", rmChars[0], rmChars[1]);
+			//RM name generation
+			fillRmName(rmName, rmBits, modBits, W, dispDirAVal);
 			
-			//WRITE OPERANDS to .ams instruction line
-			DEBUG_PRINT("  REG and R/M disassembled successfully. [Writing...]\n");
+			//Build string
 			if(D)
+			{	//MOV REG, R/M
+				sprintf(instrString, "mov %s, %s", regName, rmName);
+			}
+			else
+			{	//MOV R/M, REG
+				sprintf(instrString, "mov %s, %s", rmName, regName);
+			}
+		}
+		else if(instrType == MOV_IMMED_TO_RM)
+		{///MOV_IMMED_TO_RM
+			DEBUG_PRINT("  Instruction identified: (MOV_IMMED_TO_RM)\n");
+			DEBUG_PRINT("  Instruction format: 1100011W Md000R/m (DISP-LO) (DISP-HI) Datadata Dataifw1\n");
+			
+			//Prep variables
+			W = (instrP[0] & 0b00000001);
+			modBits = instrP[1]>>6;
+			dispSz = modBits%3;
+			instrSz = 2 + dispSz + (1+(short)W);
+			rmBits = (instrP[1]&0b00000111);
+			DEBUG_PRINT(modMsgs[modBits]);
+			DEBUG_PRINT("  %s\n", W?"(W) MOV 2 bytes":"(!W) MOV 1 byte");
+			
+			//DISP
+			if(modBits == 0b01)
 			{
-				fprintf(fOutP, "%s, %s", regChars, rmChars);
+				dispDirAVal = (char)instrP[2];
+			}
+			else if(modBits == 0b10)
+			{
+				dispDirAVal = shortValFromUCharP(instrP+2);
+			}
+			
+			//RM name generation
+			fillRmName(rmName, rmBits, modBits, W, dispDirAVal);
+			
+			//DATA / build string
+			if(!W)
+			{
+				dataVal = (char)instrP[2+dispSz];
+				sprintf(instrString, "mov %s, byte %i", rmName, dataVal);
 			}
 			else
 			{
-				fprintf(fOutP, "%s, %s", rmChars, regChars);
+				dataVal = shortValFromUCharP(instrP+2+dispSz);
+				sprintf(instrString, "mov %s, word %i", rmName, dataVal);
 			}
 		}
-		else if(instructP[0]>>1 == 0b1100011)
-		{///MOV (Immediate to register/memory) 1100011W Mod000R/m (DISP-LO) (DISP-HI) Datadata Dataifw1
-			DEBUG_PRINT("  Mnemonic was recognized as 1100011! (MOV) [Writing...]\n");
-			fprintf(fOutP, "%s", "mov "); //write mnemonic name to file
+		else if(instrType == MOV_IMMED_TO_REG)
+		{///MOV_IMMED_TO_REG
+			DEBUG_PRINT("  Instruction identified: (MOV_IMMED_TO_REG)\n");
+			DEBUG_PRINT("  Instruction format: 1011WReg Datadata Dataifw1\n");
 			
-			//Prep variables
-			bool W = (instructP[0] & 0b00000001);
-			char rmChars[69]; //Human-readable R/M operand chars
+			//Prep vars
+			regBits = (instrP[0]&0b00000111);
+			W = (instrP[0]&0b00001000);
+			instrSz = 2 + ((short)W);
+			DEBUG_PRINT("  %s\n", W?"(W) MOV 2 bytes":"(!W) MOV 1 byte");
+			
+			//REG
+			fillRegName(regName, regBits, W);
+			
+			//DATA
+			if(!W)
+			{
+				dataVal = (char)instrP[1];
+			}
+			else
+			{
+				dataVal = shortValFromUCharP(instrP+1);
+			}
+			
+			//Build string
+			sprintf(instrString, "mov %s, %i", regName, dataVal);
 		}
-		else
-		{///ERROR: All cases failed. Unrecognized mnemonic.
-			printf("ERROR: Instruction unrecognized mnemonic. Terminating.\n");
+		else if(instrType == MOV_MEM_TO_ACC)
+		{///MOV_MEM_TO_ACC
+			DEBUG_PRINT("  Instruction identified: (MOV_MEM_TO_ACC)\n");
+			DEBUG_PRINT("  Instruction format: 1010000W addr--lo addr--hi\n");
+			W = (instrP[0] & 0b00000001);
+			DEBUG_PRINT("  %s\n", W?"(W) MOV 2 bytes":"(!W) MOV 1 byte");
+			
+			//addr (stored in dispDirAVal)
+			if(W)
+			{
+				dispDirAVal = shortValFromUCharP(instrP+1);
+				instrSz = 3;
+			}
+			else
+			{
+				dispDirAVal = (char)instrP[1];
+				instrSz = 2;
+			}
+			
+			//Build string
+			sprintf(instrString, "mov ax, [%i]", dispDirAVal);
+		}
+		else if(instrType == MOV_ACC_TO_MEM)
+		{///MOV_ACC_TO_MEM
+			DEBUG_PRINT("  Instruction identified: (MOV_ACC_TO_MEM)\n");
+			DEBUG_PRINT("  Instruction format: 1010001W addr--lo addr--hi\n");
+			W = (instrP[0] & 0b00000001);
+			DEBUG_PRINT("  %s\n", W?"(W) MOV 2 bytes":"(!W) MOV 1 byte");
+			
+			//addr (stored in dispDirAVal)
+			if(W)
+			{
+				dispDirAVal = shortValFromUCharP(instrP+1);
+				instrSz = 3;
+			}
+			else
+			{
+				dispDirAVal = (char)instrP[1];
+				instrSz = 2;
+			}
+			
+			//Build string
+			sprintf(instrString, "mov [%i], ax", dispDirAVal);
+		}
+		else ///ERROR
+		{
+			printf("ERROR: Unrecognized mnemonic. Terminating.\n");
 			return 1;
 		}
 		
-		//Upkeep
-		instructionsProcessed++;
-		instructP+=2;///TODO: Increment this in the loop
-		bytesProcessed = instructP-inBytes;
-		DEBUG_PRINT("  Bytes processed: %i/%i\n", instructP-inBytes, fInSz);
-	}//End of instruction disassembly
+		//WRITE instruction to output file
+		fprintf(fOutP, instrString);
+		DEBUG_PRINT("  Successfully disassembled -> \"%s\" [Writing...]\n", instrString);
+		
+		//Loop upkeep
+		DEBUG_PRINT("  Instruction size: %i\n  ", instrSz);
+		if(DEBUG){printBits(instrP, instrSz, 0);}
+		instrP += instrSz;
+		instrsProcessed++;
+		bytesProcessed = instrP-inBytes;
+		DEBUG_PRINT("\n  Bytes processed: %i/%i\n", instrP-inBytes, fInSz);
+	}
+	//End of disassembling
 
 	//Get output file size
 	fseek(fOutP, 0L, SEEK_END); //Set file position to end
 	int fOutSz = ftell(fOutP); //Store position (size)
 	fseek(fOutP, 0L, SEEK_SET); //Return to start of file
-	DEBUG_PRINT("File OUT size is %i.\n", fOutSz);
+	
+	DEBUG_PRINT("Disassembly DONE.\n");
+	DEBUG_PRINT("Total instructions: %i\n", instrsProcessed);
+	DEBUG_PRINT("File IN size: %i\n", fInSz);
+	DEBUG_PRINT("File OUT size: %i\n", fOutSz);
 
 	//Print output file contents to stdout
-	printf("::: CONTENTS OF OUTPUT FILE :::\n");
+	printf("\n\n::: CONTENTS OF OUTPUT FILE :::\n");
 	printf("%s", *fOutP);
 	
 	///TODO: Compare bins
@@ -153,165 +303,96 @@ int main(int argc, char **argv)
 	fclose(fOutP);
 	//system("pause");
 	return 0;
-}//END MAIN
-
-void fillRegName(char regChars[], char regBits, bool W)
-{
-	///Fills in chars for MOV operand name. Works for REG
-	///Works for R/M as well, as long as MOD bits in the instruction are 11
-	///Char values come from tables on page 4-20 of 8086 manual (page 162 of the pdf)
-	switch(regBits)
-	{
-		case 0b000:
-		{
-			regChars[0] = 'a';			//first char of operand
-			regChars[1] = !W?'l':'x';	//secnd char of operand
-			regChars[2] = '\0';
-		}break;
-		
-		case 0b001:
-		{
-			regChars[0] = 'c';
-			regChars[1] = !W?'l':'x';
-			regChars[2] = '\0';
-		}break;
-		
-		case 0b010:
-		{
-			regChars[0] = 'd';
-			regChars[1] = !W?'l':'x';
-			regChars[2] = '\0';
-		}break;
-		
-		case 0b011:
-		{
-			regChars[0] = 'b';
-			regChars[1] = !W?'l':'x';
-			regChars[2] = '\0';
-		}break;
-		
-		case 0b100:
-		{
-			regChars[0] = !W?'a':'s';
-			regChars[1] = !W?'h':'p';
-			regChars[2] = '\0';
-		}break;
-		
-		case 0b101:
-		{
-			regChars[0] = !W?'c':'b';
-			regChars[1] = !W?'h':'p';
-			regChars[2] = '\0';
-		}break;
-		
-		case 0b110:
-		{
-			regChars[0] = !W?'d':'s';
-			regChars[1] = !W?'h':'i';
-			regChars[2] = '\0';
-		}break;
-		
-		case 0b111:
-		{
-			regChars[0] = !W?'b':'d';
-			regChars[1] = !W?'h':'i';
-			regChars[2] = '\0';
-		}break;
-		
-		default:
-		{
-			printf("~~ERROR parsing REG (OR R/M). Terminating.\n");
-		}
-	}
 }
+//END MAIN
 
-void fillRmName(char rmChars[], char rmBits, char modBits, bool W)
+void fillRegName(char regName[], char regBits, bool W)
 {
-	///TODO: This isn't fully implemented yet. It can't handle all cases of MOD.
+	//                W? 01 R/M
+	char regNameMatrix[2][2][8]=
+	{// 000  001  010  011  100  101  110  111   <- R/M bit vals
+		'a', 'c', 'd', 'b', 'a', 'c', 'd', 'b',  // !w
+		'l', 'l', 'l', 'l', 'h', 'h', 'h', 'h',
+		
+		'a', 'c', 'd', 'b', 's', 'b', 's', 'd',   // w
+		'x', 'x', 'x', 'x', 'p', 'p', 'i', 'i'
+	};
+	
+	regName[0] = regNameMatrix[(char)W][0][regBits];
+	regName[1] = regNameMatrix[(char)W][1][regBits];
+	regName[2] = '\0';
+	
+	DEBUG_PRINT("  REG is: %s\n", regName);
+}
+void fillRmName(char rmName[], char rmBits, char modBits, bool W, short dispDA)
+{
 	if(modBits == 0b11)
 	{
 		DEBUG_PRINT("  This R/M tastes a lot like a REG.\n");
-		fillRegName(rmChars, rmBits, W);
+		fillRegName(rmName, rmBits, W);
 	}
 	else if(modBits==0b00 && rmBits==0b110)
 	{
 		//The special case
-		rmChars = "DIRECT ADDRESS";
+		sprintf(rmName, "[%i]", dispDA);
 	}
 	else
 	{
 		//We know we aren't MOD=11, and we aren't the special DIRECT ADDRESS case.
-		//See table 4-10 on page 4-20. Now the plot thickens!
-		switch(rmBits)
-		{
-			case 0b000:
-			{
-				rmChars = "[bx + si";
-			}break;
-			
-			case 0b001:
-			{
-				rmChars = "[bx + di";
-			}break;
-			
-			case 0b010:
-			{
-				rmChars = "[bp + si";
-			}break;
-			
-			case 0b011:
-			{
-				rmChars = "[bp + di";
-			}break;
-			
-			case 0b100:
-			{
-				rmChars = "[si";
-			}break;
-			
-			case 0b101:
-			{
-				rmChars = "[di";
-			}break;
-			
-			case 0b110:
-			{
-				rmChars = "[bp";
-			}break;
-			
-			case 0b111:
-			{
-				rmChars = "[bx";
-			}break;
-			
-			default:
-			{
-				printf("ERROR DISASSEMBLING R/M");
-			}
-		}//End switch
+		//Besides that, this block is MOD agnostic.
+		//See table 4.10 on page 4.20.
+		if     (rmBits==0b000){strcpy(rmName, "[bx + si");}
+		else if(rmBits==0b001){strcpy(rmName, "[bx + di");}
+		else if(rmBits==0b010){strcpy(rmName, "[bp + si");}
+		else if(rmBits==0b011){strcpy(rmName, "[bp + di");}
+		else if(rmBits==0b100){strcpy(rmName, "[si");}
+		else if(rmBits==0b101){strcpy(rmName, "[di");}
+		else if(rmBits==0b110){strcpy(rmName, "[bp");}
+		else if(rmBits==0b111){strcpy(rmName, "[bx");}
+		else{printf("ERROR DISASSEMBLING R/M");}
+		
 		//But we need to CONCATENATE a little more!
-		//Just the bracket, plus MOD=01 and MOD=10 stuff
-		switch(modBits)
+		//Just the disp for MOD=01 and MOD=10, then final bracket
+		if(modBits==0b01 || modBits==0b10)
 		{
-			case 0b00:
+			if(dispDA >= 0)
 			{
-				strncat(rmChars, "]", 1);
-			}break;
-			
-			case 0b01:
-			{
-				strncat(rmChars, " + d8]", 1);
-			}break;
-			
-			case 0b10:
-			{
-				strncat(rmChars, " + d16]", 1);
-			}break;
-			
-			default:
-			{
-				DEBUG_PRINT("ERROR during final concatenation for fillRmName");
+				strncat(rmName, " + ", 3);
 			}
+			else
+			{
+				dispDA = dispDA * (-1);
+				strncat(rmName, " - ", 3);
+			}
+			//conc displacement as string
+			char dispString[8];
+			sprintf(dispString, "%i", dispDA);
+			strncat(rmName, dispString, 8);
 		}
+		//Everyone here gets a bracket!
+		strncat(rmName, "]", 2);
 	}
+	DEBUG_PRINT("  R/M is: %s\n", rmName);
+}
+short shortValFromUCharP(unsigned char *charP)
+{
+	return (short)charP[1]<<8 | (short)charP[0];
+}
+void printBits(unsigned char *startP, int size, int columns)
+{
+	for(int i=0 ; i<size ; i++)
+	{
+		///Each iteration prints 1 byte and a space
+		for(int j=7 ; j>=0 ; j--)
+		{
+			///Each iteration prints 1 bit
+			printf("%i", (startP[i] >> j) & 1);
+		}
+		
+		printf(" ");
+		if( columns!=0 && i!=0 && !((i+1)%columns) )
+		{
+			printf("\n");
+		}
+	}	
 }
