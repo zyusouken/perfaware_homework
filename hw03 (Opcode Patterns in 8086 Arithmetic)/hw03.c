@@ -54,7 +54,6 @@ short valFromUCharP(unsigned char *charP, bool W);
 void fillRegName(char regName[], char regBitsVal, bool W);
 void fillRmName(char rmName[], char rmBitsVal, char modBitsVal, bool W, short disp);
 void DEBUG_printBytesIn01s(unsigned char *startP, int size, int columns);
-void DEBUG_printBoolStatus(bool argBool, char boolName[]);
 
 bool D;
 bool W;
@@ -200,8 +199,8 @@ int main(int argc, char *argv[])
 	
 				DEBUG_PRINT("  opForm: S4ooooooDW_MdRegRgm_Di_Di\n");
 				DEBUG_PRINT("  %s (RM TO:FROM REG)\n", mnemName);
-				DEBUG_printBoolStatus(D, "D");
-				DEBUG_printBoolStatus(W, "W");
+				DEBUG_PRINT("  %s\n", D?"D":"!D");
+				DEBUG_PRINT("  %s\n", W?"W":"!W");
 				DEBUG_PRINT(modMsgs[modBitsVal]);
 				
 				//DISP value calc
@@ -245,8 +244,8 @@ int main(int argc, char *argv[])
 				dataSz = 1 + (char)W;
 				instrSz = 2 + dispSz + dataSz;
 				
-				DEBUG_printBoolStatus(S, "S");
-				DEBUG_printBoolStatus(W, "W");
+				DEBUG_PRINT("  %s\n", S?"S":"!S");
+				DEBUG_PRINT("  %s\n", D?"D":"!D");
 				DEBUG_PRINT(modMsgs[modBitsVal]);
 				DEBUG_PRINT("  opForm: S6oooooooW_MdSubRgm_Di_Di_Da_Da\n");
 				DEBUG_PRINT("  %s (IMM to RM)\n", mnemName);
@@ -284,7 +283,7 @@ int main(int argc, char *argv[])
 				dataSz = 1 + (char)W;
 				instrSz = 1 + dataSz;
 				
-				DEBUG_printBoolStatus(W, "W");
+				DEBUG_PRINT("  %s\n", W?"W":"!W");
 				DEBUG_PRINT("  opForm: S3ooooWReg_Datadata_Datadatw\n");
 				DEBUG_PRINT("  %s (IMM to REG)\n", mnemName);
 				
@@ -443,11 +442,6 @@ void DEBUG_printBytesIn01s(unsigned char *startP, int size, int columns)
 			printf("\n");
 		}
 	}	
-}
-void DEBUG_printBoolStatus(bool argBool, char boolName[])
-{
-	//Prints boolName, adds a ! before it if !argBool
-	DEBUG_PRINT("  %s%s\n", argBool?"":"!",boolName);
 }
 bool theseBitsMatch(unsigned char* instrP, char opString[])
 {
