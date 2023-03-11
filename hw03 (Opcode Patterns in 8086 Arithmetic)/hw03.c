@@ -3,7 +3,6 @@
 	All three versions of ADD, SUB, and CMP
 */
 
-
 #include<stdio.h>
 #include<stdbool.h>
 #include<string.h>
@@ -14,14 +13,14 @@ bool DEBUG=1;
 
 enum //Instruction format patterns
 {
-	OpcodeDW_MdRegRgm_DisplcLO_DisplcHI, //RM tofrom REG
-	///MOV, ADD, SUB, CMP
+	OpcodeDW_MdRegRgm_Disp_Disp, //RM tofrom REG
+	///MOV, XCHG(D), ADD, SUB, CMP
 
-	OpcodeeW_MdSubRgm_DisplcLo_DisplcHi_Datadata_Dataaifw, //IMM to RM
+	OpcodeeW_MdSubRgm_Disp_Disp_Data_DatW, //IMM to RM
 ///OR     S
 	///MOV, ADD(S,!S), SUB(S,!S), CMP(S,!S)
 
-	OpcoWReg_Datadata_Dataaifw, //IMM to REG
+	OpcoWReg_Data_Datw, //IMM to REG
 	///This can probably go into the same control flow as "IMM to RM"
 	///if we assume MOD 11 and add a few extra conditions.
 	///MOV
@@ -33,7 +32,7 @@ enum //Instruction format patterns
 	///MOV
 };
 
-enum //Instruction types, in the order they appear in the 8086 manual
+/*enum //Instruction types, in the order they appear in the 8086 manual
 {
 	//Identical opcode bits with different subOp bits get distinct entries.
 	//EG:                       {sub}
@@ -63,6 +62,7 @@ enum //Instruction types, in the order they appear in the 8086 manual
 	SUB_IMM_FROM_RM,
 	SUB_IMM_FROM_ACC,
 };
+*/
 
 char modMsgs[4][64]=
 {
@@ -107,7 +107,8 @@ int main(int argc, char *argv[])
 	int instrsProcessed=0;
 	int bytesProcessed=0;
 	short instrSz;
-	short instrType;
+	//short instrType;
+	short instrForm;
 	bool D;
 	bool W;
 	short dispDirAVal; //For displacement, DIRECT ACCESS, and addresses
@@ -117,6 +118,7 @@ int main(int argc, char *argv[])
 	unsigned char modBits;
 	unsigned char regBits;
 	unsigned char rmBits;
+	unsigned char opcodeBits;
 	unsigned char subOpBits; //Bits that distinguish instructions with identical formats
 	char mnemName[8]; //Mnemonics like mov, add, sub, pushad, etc
 	char regName[3]; //Human-readable REG operand
@@ -125,6 +127,9 @@ int main(int argc, char *argv[])
 
 	//WRITE bit width directive to output file
 	fprintf(fOutP, "%s", "bits 16\n");
+	
+	///DEBUG
+	instrForm = OpcodeDW_MdRegRgm_Disp_Disp;
 	
 	while(bytesProcessed < fInSz)
 	{///Each iteration disassembles one instruction
@@ -136,8 +141,17 @@ int main(int argc, char *argv[])
 		DEBUG_PRINT("First byte: ");
 		if(DEBUG){printBits(instrP, 1, 0);}
 		DEBUG_PRINT("\n");
+
+		//Select opcode, subop, and mnemonic
+		opcodeBits = instrP[0];
+		if     ((opcodeBits&0b11111100) == 0b10001000){instrForm=OpcodeDW_MdRegRgm_Disp_Disp; strcpy(mnemName, "mov");}
+		else if((opcodeBits&0b11111110) == 0b10000110){instrForm=OpcodeDW_MdRegRgm_Disp_Disp; strcpy(mnemName, "xchg");}
+		else if((opcodeBits&0b11111100) == 0b00000000){instrForm=OpcodeDW_MdRegRgm_Disp_Disp; strcpy(mnemName, "add");}
+		else if((opcodeBits&0b11111100) == 0b00101000){instrForm=OpcodeDW_MdRegRgm_Disp_Disp; strcpy(mnemName, "sub");}
+		else if((opcodeBits&0b11111100) == 0b00111000){instrForm=OpcodeDW_MdRegRgm_Disp_Disp; strcpy(mnemName, "cmp");}
+		else{printf("ERROR slecting mnemonic. [Terminating...]"); return 1;}
 		
-		//Determine instruction type (Also set subOpBits)
+		/*//Determine instruction type (Also set subOpBits)
 		if(      (instrP[0]&0b11111100) == 0b10001000){instrType = MOV_RM_TOFROM_REG;} ///100010DW
 		else if( (instrP[0]&0b11111110) == 0b11000110){instrType = MOV_IMM_TO_RM;} ///1100011W
 		else if( (instrP[0]&0b11110000) == 0b10110000){instrType = MOV_IMM_TO_REG;} ///1011WReg
@@ -149,16 +163,16 @@ int main(int argc, char *argv[])
 		{
 			printf("ERROR: Unrecognized instruction byte: ");
 			printBits(instrP, 1, 0);
-			printf("\nBytes processed: %i\n[Terminating...]\n", bytesProcessed); 
+			printf("\nBytes processed: %i\n[Terminating...]\n", bytesProcessed);
 			return 1;
 		}
+		*/
 
 		//Process this instruction (Implementations are in same order as 8086 manual from p4.22)
-		if(instrType == MOV_RM_TOFROM_REG)
-		{//MOV_RM_TOFROM_REG
-///OpcodeDW_MdRegRgm_DisplcLO_DisplcHI
-			DEBUG_PRINT("  Instruction identified: (MOV_RM_TOFROM_REG)\n");
+		if(instrForm == OpcodeDW_MdRegRgm_Disp_Disp)
+		{///XXX_RM_TOFROM_REG
 			DEBUG_PRINT("  Instruction format: 100010DW MdRegR/m (DispLo) (DispHI)\n");
+			DEBUG_PRINT("  (XXX_RM_TOFROM_REG)\n");
 			
 			//Prep vars for operand parsing
 			D = (instrP[0] & 0b00000010);
@@ -172,6 +186,7 @@ int main(int argc, char *argv[])
 			DEBUG_PRINT(modMsgs[modBits]);
 			DEBUG_PRINT("  %s\n", D?"(D) MOV REG, R/M":"(!D) MOV R/M, REG");
 			DEBUG_PRINT("  %s\n", W?"(W) MOV 2 bytes":"(!W) MOV 1 byte");
+			
 			
 			//DISP
 			if(modBits == 0b01)
@@ -197,18 +212,19 @@ int main(int argc, char *argv[])
 			
 			//Build output string
 			if(D)
-			{	//MOV REG, R/M
-				sprintf(instrString, "mov %s, %s", regName, rmName);
+			{	//XXX REG, R/M
+				sprintf(instrString, "%s %s, %s", mnemName, regName, rmName);
 			}
 			else
-			{	//MOV R/M, REG
-				sprintf(instrString, "mov %s, %s", rmName, regName);
+			{	//XXX R/M, REG
+				sprintf(instrString, "%s %s, %s", mnemName, rmName, regName);
 			}
 		}
-		else if(instrType==MOV_IMM_TO_RM || instrType==MOV_IMM_TO_REG)
+/*
+		else if(instrForm==OpcodeeW_MdSubRgm_Disp_Disp_Data_DatW || instrForm==OpcoWReg_Data_Datw)
 		{ 
 			
-			if(instrType == MOV_IMM_TO_REG)
+			if(instrForm==OpcoWReg_Data_Datw)
 			{
 				DEBUG_PRINT("  Instruction identified: (MOV_IMM_TO_REG)\n");
 				DEBUG_PRINT("  Instruction format: OpcoWReg_Datadata_Dataaifw\n");
@@ -295,6 +311,7 @@ int main(int argc, char *argv[])
 			//Build output string
 			sprintf(instrString, "mov [%i], ax", dispDirAVal);
 		}
+*/
 		else ///ERROR
 		{
 			printf("ERROR: Unrecognized instruction type. Terminating.\n");
