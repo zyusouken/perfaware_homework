@@ -5,31 +5,29 @@
 cls
 
 ::Set hwName manually for each homework.
+::This should be the name of the .c file
+::for the disassembler code, w/o the .c
 set hwName=hw03
-::DELETE old output (So it won't run if it doesn't build.)
-::del %hwName%.exe
-
-::inASM is the .asm passed to this .bat
+::inASM is the .asm passed to this .bat as an argument
 set inASM=%1
+
 ::Assemble
 nasm %inASM%
-::Truncate .asm extension
+::New var for bin filename (.asm truncated)
 set inBIN=%inASM:.asm=%
 
 ::Compile
 gcc %hwName%.c -o %hwName%.exe
-
-::Test run
-::1st param is input bin (passed to this .bat)
-::2nd param is output .asm filename
+::Run (Params are input bin, output asm)
 %hwName%.exe %inBIN% %hwName%_output.asm
 
-::Reassemble and compare with examble bin
 echo.
 echo.
 echo.
-echo [Re-assembling and comparing with source file...]
+echo [Re-assembling and comparing with original bin...]
+::RE-assemble
 nasm %hwName%_output.asm
+::Compare
 FC /B %inBIN% %hwName%_output
 
 ::Clean up output

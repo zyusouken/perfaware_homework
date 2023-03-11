@@ -1,8 +1,3 @@
-/*
-	Requirements:
-	All three versions of ADD, SUB, and CMP
-*/
-
 #include<stdio.h>
 #include<stdbool.h>
 #include<string.h>
@@ -11,71 +6,74 @@
 #define USE_WORD true
 bool DEBUG=1;
 
-enum //Instruction format patterns
+enum ///Formats (Compatible mnemonics are listed below each format.)
 {
-	OpcodeDW_MdRegRgm_Disp_Disp, //RM tofrom REG
-	///MOV, XCHG(D), ADD, SUB, CMP
+//MAX size 1
 
-	OpcodeeW_MdSubRgm_Disp_Disp_Data_DatW, //IMM to RM
-///OR     S
-	///MOV, ADD(S,!S), SUB(S,!S), CMP(S,!S)
+	S1oooooReg, //to:with REG
+	///XCHG, INC, DEC
+	
+	S1oooooooW, //Variable port?
+	///IN, OUT
 
-	OpcoWReg_Data_Datw, //IMM to REG
-	///This can probably go into the same control flow as "IMM to RM"
-	///if we assume MOD 11 and add a few extra conditions.
+//MAX size 2
+	
+	S2oooooooW_Datadata, //Fixed port?
+	///IN, OUT
+	
+//MAX size 3
+
+	S3ooooWReg_Datadata_Datadatw, //IMM to REG
 	///MOV
 	
-	OpcodeeW_AddDatLo_AddDatHi, //IMM or MEM tofrom ACC (Same format for address or immediate data)
+	S3oooooooW_AdDa_AdDa, //IMM or MEM tofrom ACC (AdDa is address OR data)
 	///MOV, ADD, SUB, CMP(!W)
 	
-	Opcodeee_MdUSrRgm_DisplcLo_DisplcHi //U=subOp RM tofrom SEGREG
+//MAX size 4
+	
+	S4ooooooDW_MdRegRgm_Di_Di, //RM to:from REG
+	///MOV, XCHG(D), ADD, SUB, CMP, OR, XOR
+	
+	S4oooooooo_MdUSrRgm_DisplcLo_DisplcHi, //U=subOp RM tofrom SEGREG
 	///MOV
+	
+//MAX size 6
+	
+	S6oooooooW_DATADATA_Di_Di_Da_Da,
+	///XOR
+
+	S6oooooooW_MdSubRgm_Di_Di_Da_Da, //IMM to RM
+	///MOV, add, or, adc, sbb, and, sub, adc, cmp
+
+//Buffer
+	ENUM_COMMA_BUFFER
 };
 
-/*enum //Instruction types, in the order they appear in the 8086 manual
-{
-	//Identical opcode bits with different subOp bits get distinct entries.
-	//EG:                       {sub}
-	//ADD_IMM_TO_RM : 100000SW Md000R/m (DispLo) (DispHi) Datadata Data-ifw
-	//SUB_IMM_TO_RM : 100000SW Md101R/m (DispLo) (DispHi) Datadata Data-ifw
-	MOV_RM_TOFROM_REG,
-	MOV_IMM_TO_RM,
-	MOV_IMM_TO_REG,
-	MOV_MEM_TO_ACC,
-	MOV_ACC_TO_MEM,
-	MOV_RM_TO_SEGREG,
-	MOV_SEGREG_TO_RM,
-	PUSH_RM, PUSH_REG, PUSH_SEGREG,
-	POP_RM, POP_REG, POP_SEGREG,
-	XCHG_RM_REG, XCHG_REG_ACC,
-	IN_FIXED, IN_VAR,
-	OUT_FIXED, OUT_VAR,
-	XLAT, LEA, LDS, LES, LAHF, SAHF, PUSHF, POPF,
-	ADD_RM_REG_EITHER,
-	ADD_IMM_TO_RM,
-	ADD_IMM_TO_ACC,
-	ADC_RM_REG_EITHER,
-	ADC_IMM_TO_RM,
-	ADC_IMM_TO_ACC,
-	INC_RM, INC_REG, AAA, DAA,
-	SUB_RM_REG_EITHER,
-	SUB_IMM_FROM_RM,
-	SUB_IMM_FROM_ACC,
-};
-*/
-
-char modMsgs[4][64]=
-{
-	"  MOD is: 00 (Mem Mode, no disp)\n",
-	"  MOD is: 01 (Mem Mode, 8-bit disp)\n",
-	"  MOD is: 10 (Mem Mode, 16-bit disp)\n",
-	"  MOD is: 11 (Reg Mode, no disp)\n"
-};
-
-void printBits(unsigned char *startP, int size, int columns);
-void fillRegName(char regName[], char regBits, bool W);
-void fillRmName(char rmName[], char rmBits, char modBits, bool W, short disp);
+bool theseBitsMatch(unsigned char* instrP, char opString[]);
 short valFromUCharP(unsigned char *charP, bool W);
+void fillRegName(char regName[], char regBitsVal, bool W);
+void fillRmName(char rmName[], char rmBitsVal, char modBitsVal, bool W, short disp);
+void DEBUG_printBytesIn01s(unsigned char *startP, int size, int columns);
+void DEBUG_printBoolStatus(bool argBool, char boolName[]);
+
+bool D;
+bool W;
+bool S;
+short dispVal; //For displacement (including DIRECT ACCESS)
+short dataVal;
+unsigned char opForm;
+unsigned char instrSz;
+unsigned char subOpVal; //Bits that distinguish instructions with identical first-byte opcodes
+unsigned char dispSz;
+unsigned char dataSz;
+unsigned char modBitsVal;
+unsigned char regBitsVal;
+unsigned char rmBitsVal;
+char mnemName[8]; //Mnemonics like mov, add, sub, pushad, etc
+char regName[3]; //Human-readable REG operand
+char rmName[32]; //Human-readable R/M operand
+char instrString[32];
+
 
 int main(int argc, char *argv[])
 {
@@ -95,227 +93,215 @@ int main(int argc, char *argv[])
 		inBytes[i] = fgetc(fInP);
 	}
 	
-	//instrP points to the first byte of the instruction being disassembled
+	//For iterating through instructions
 	unsigned char *instrP = inBytes;
 
-	//In debug mode, print entire bin contents as 0s and 1s, in 4 columns.
+	//In debug mode, print all bits of bin, in 4 columns.
 	DEBUG_PRINT("\n\"%s\" bin size is %i. Contents:\n\n", argv[1], fInSz);
-	if(DEBUG){printBits(instrP, fInSz, 4);}
+	DEBUG_printBytesIn01s(inBytes, fInSz, 4);
 	DEBUG_PRINT("\n\n");
 	
-	//Prep vars
-	int instrsProcessed=0;
-	int bytesProcessed=0;
-	short instrSz;
-	//short instrType;
-	short instrForm;
-	bool D;
-	bool W;
-	short dispDirAVal; //For displacement, DIRECT ACCESS, and addresses
-	short dispSz;
-	short dataVal;
-	//short dataSz;
-	unsigned char modBits;
-	unsigned char regBits;
-	unsigned char rmBits;
-	unsigned char opcodeBits;
-	unsigned char subOpBits; //Bits that distinguish instructions with identical formats
-	char mnemName[8]; //Mnemonics like mov, add, sub, pushad, etc
-	char regName[3]; //Human-readable REG operand
-	char rmName[32]; //Human-readable R/M operand
-	char instrString[32];
-
+	//Startup vars and constants
+	unsigned long long int instrsProcessed=0;
+	unsigned long long int bytesProcessed=0;
+	const char mnems100000[8][8]=
+	{
+		//Mnemonics for all operations that collide on instrP byte [0] opcode 100000xx,
+		//sorted by binary value of there subOp bits from byte [1].
+		"add\0\0\0\0"/*000*/, "or\0\0\0\0\0"/*001*/, "adc\0\0\0\0"/*010*/, "sbb\0\0\0\0"/*011*/,
+		"and\0\0\0\0"/*100*/, "sub\0\0\0\0"/*101*/, "???\0\0\0\0"/*110*/, "cmp\0\0\0\0"/*111*/
+	};
+	const char modMsgs[4][64]=
+	{
+		"  MOD: 00 (Mem Mode, no disp)\n", "  MOD: 01 (Mem Mode, 8-bit disp)\n",
+		"  MOD: 10 (Mem Mode, 16-bit disp)\n", "  MOD: 11 (Reg Mode, no disp)\n"
+	};
+	
 	//WRITE bit width directive to output file
 	fprintf(fOutP, "%s", "bits 16\n");
 	
-	///DEBUG
-	instrForm = OpcodeDW_MdRegRgm_Disp_Disp;
-	
+	//MASTER LOOP
 	while(bytesProcessed < fInSz)
 	{///Each iteration disassembles one instruction
-		
-		//WRITE newline to file for every instruction after the first
-		if(bytesProcessed)fprintf(fOutP, "%c", '\n');
 
 		DEBUG_PRINT("Beginning work on instruction %i. ", instrsProcessed+1);
 		DEBUG_PRINT("First byte: ");
-		if(DEBUG){printBits(instrP, 1, 0);}
+		DEBUG_printBytesIn01s(instrP, 1, 0);
 		DEBUG_PRINT("\n");
 
-		//Select opcode, subop, and mnemonic
-		opcodeBits = instrP[0];
-		if     ((opcodeBits&0b11111100) == 0b10001000){instrForm=OpcodeDW_MdRegRgm_Disp_Disp; strcpy(mnemName, "mov");}
-		else if((opcodeBits&0b11111110) == 0b10000110){instrForm=OpcodeDW_MdRegRgm_Disp_Disp; strcpy(mnemName, "xchg");}
-		else if((opcodeBits&0b11111100) == 0b00000000){instrForm=OpcodeDW_MdRegRgm_Disp_Disp; strcpy(mnemName, "add");}
-		else if((opcodeBits&0b11111100) == 0b00101000){instrForm=OpcodeDW_MdRegRgm_Disp_Disp; strcpy(mnemName, "sub");}
-		else if((opcodeBits&0b11111100) == 0b00111000){instrForm=OpcodeDW_MdRegRgm_Disp_Disp; strcpy(mnemName, "cmp");}
+		//Set opForm, subOpVal, and mnemName
+		if(0);
+		else if(theseBitsMatch(instrP,"10010reg")){opForm=  S1oooooReg  ;strcpy(mnemName,"xchg");}///to:with REG
+		else if(theseBitsMatch(instrP,"01000reg")){opForm=  S1oooooReg  ;strcpy(mnemName,"inc");}///to:with REG
+		else if(theseBitsMatch(instrP,"01001reg")){opForm=  S1oooooReg  ;strcpy(mnemName,"dec");}///to:with REG
+		else if(theseBitsMatch(instrP,"1110110w")){opForm=  S1oooooooW  ;strcpy(mnemName,"in");}///Fixed port
+		else if(theseBitsMatch(instrP,"1110111w")){opForm=  S1oooooooW  ;strcpy(mnemName,"out");}///Variable port
+		else if(theseBitsMatch(instrP,"1110010w")){opForm=  S2oooooooW_Datadata  ;strcpy(mnemName,"in");}///Fixed port
+		else if(theseBitsMatch(instrP,"1110011w")){opForm=  S2oooooooW_Datadata  ;strcpy(mnemName,"out");}///Variable port
+		else if(theseBitsMatch(instrP,"1010000w")){opForm=  S3oooooooW_AdDa_AdDa  ;strcpy(mnemName,"mov");}///MEM to ACC
+		else if(theseBitsMatch(instrP,"1010001w")){opForm=  S3oooooooW_AdDa_AdDa  ;strcpy(mnemName,"mov");}///ACC to MEM
+		else if(theseBitsMatch(instrP,"0000010w")){opForm=  S3oooooooW_AdDa_AdDa  ;strcpy(mnemName,"add");}///IMM to ACC
+		else if(theseBitsMatch(instrP,"0001010w")){opForm=  S3oooooooW_AdDa_AdDa  ;strcpy(mnemName,"adc");}///IMM to ACC
+		else if(theseBitsMatch(instrP,"0010110w")){opForm=  S3oooooooW_AdDa_AdDa  ;strcpy(mnemName,"sub");}///IMM (from) ACC
+		else if(theseBitsMatch(instrP,"0001110w")){opForm=  S3oooooooW_AdDa_AdDa  ;strcpy(mnemName,"sbb");}///IMM (from) ACC
+		else if(theseBitsMatch(instrP,"1011wreg")){opForm=  S3ooooWReg_Datadata_Datadatw  ;strcpy(mnemName,"mov");}///IMM to REG
+		else if(theseBitsMatch(instrP,"100010dw")){opForm=  S4ooooooDW_MdRegRgm_Di_Di  ;strcpy(mnemName,"mov");}///RM to:from REG
+		else if(theseBitsMatch(instrP,"1000011x")){opForm=  S4ooooooDW_MdRegRgm_Di_Di  ;strcpy(mnemName,"xchg");}///ALWAYS D
+		else if(theseBitsMatch(instrP,"000000dw")){opForm=  S4ooooooDW_MdRegRgm_Di_Di  ;strcpy(mnemName,"add");}///RM to:from REG
+		else if(theseBitsMatch(instrP,"001010dw")){opForm=  S4ooooooDW_MdRegRgm_Di_Di  ;strcpy(mnemName,"sub");}///RM to:from REG
+		else if(theseBitsMatch(instrP,"001110dw")){opForm=  S4ooooooDW_MdRegRgm_Di_Di  ;strcpy(mnemName,"cmp");}///RM to:from REG
+		else if(theseBitsMatch(instrP,"0011010w")){opForm=  S6oooooooW_DATADATA_Di_Di_Da_Da;  strcpy(mnemName, "xor");}
+		else if(theseBitsMatch(instrP,"1100011w")){opForm=  S6oooooooW_MdSubRgm_Di_Di_Da_Da;  strcpy(mnemName, "mov");}///ALWAYS S
+		else if(theseBitsMatch(instrP,"1111011w")){opForm=  S6oooooooW_MdSubRgm_Di_Di_Da_Da;  strcpy(mnemName, "test");}
+		else if(theseBitsMatch(instrP,"100000xx"))        //S6oooooooW_MdSubRgm_Di_Di_Da_Da
+		{
+			//add, or, adc, sbb, and, sub, adc, cmp
+			opForm = S6oooooooW_MdSubRgm_Di_Di_Da_Da;
+			subOpVal = (instrP[1]&0b00111000)>>3;
+			strcpy(mnemName, mnems100000[subOpVal]);
+		}
 		else{printf("ERROR slecting mnemonic. [Terminating...]"); return 1;}
 		
-		/*//Determine instruction type (Also set subOpBits)
-		if(      (instrP[0]&0b11111100) == 0b10001000){instrType = MOV_RM_TOFROM_REG;} ///100010DW
-		else if( (instrP[0]&0b11111110) == 0b11000110){instrType = MOV_IMM_TO_RM;} ///1100011W
-		else if( (instrP[0]&0b11110000) == 0b10110000){instrType = MOV_IMM_TO_REG;} ///1011WReg
-		else if( (instrP[0]&0b11111110) == 0b10100000){instrType = MOV_MEM_TO_ACC;} ///1010000w
-		else if( (instrP[0]&0b11111110) == 0b10100010){instrType = MOV_ACC_TO_MEM;} ///1010001w
-		//else if( (instrP[0]&0b11111111) == 0b10001110){instrType = MOV_RM_TO_SEGREG;}
-		//else if( (instrP[0]&0b11111111) == 0b10001100){instrType = MOV_SEGREG_TO_RM;}
-		else
+		//WRITE newline to file for every instruction after the first
+		if(bytesProcessed)fprintf(fOutP, "\n");
+		
+		//Select disassembly logic
+		switch(opForm)
 		{
-			printf("ERROR: Unrecognized instruction byte: ");
-			printBits(instrP, 1, 0);
-			printf("\nBytes processed: %i\n[Terminating...]\n", bytesProcessed);
-			return 1;
-		}
-		*/
-
-		//Process this instruction (Implementations are in same order as 8086 manual from p4.22)
-		if(instrForm == OpcodeDW_MdRegRgm_Disp_Disp)
-		{///XXX_RM_TOFROM_REG
-			DEBUG_PRINT("  Instruction format: 100010DW MdRegR/m (DispLo) (DispHI)\n");
-			DEBUG_PRINT("  (XXX_RM_TOFROM_REG)\n");
-			
-			//Prep vars for operand parsing
-			D = (instrP[0] & 0b00000010);
-			W = (instrP[0] & 0b00000001);
-			modBits = instrP[1]>>6;
-			dispSz = modBits%3;
-			instrSz = 2 + dispSz;
-			regBits = (instrP[1]&0b00111000)>>3;
-			rmBits = (instrP[1]&0b00000111);
-			dispDirAVal = 0;
-			DEBUG_PRINT(modMsgs[modBits]);
-			DEBUG_PRINT("  %s\n", D?"(D) MOV REG, R/M":"(!D) MOV R/M, REG");
-			DEBUG_PRINT("  %s\n", W?"(W) MOV 2 bytes":"(!W) MOV 1 byte");
-			
-			
-			//DISP
-			if(modBits == 0b01)
-			{
-				dispDirAVal = valFromUCharP(instrP+2, USE_BYTE);
-			}
-			else if(modBits == 0b10)
-			{
-				dispDirAVal = valFromUCharP(instrP+2, USE_WORD);
-			}
-			else if(modBits==0b00 && rmBits==0b110)
-			{
-				//Special DIRECT ACCESS case
-				instrSz+=2;
-				dispDirAVal = valFromUCharP(instrP+2, USE_WORD);
-			}
-			
-			//REG name generation
-			fillRegName(regName, regBits, W);
-			
-			//RM name generation
-			fillRmName(rmName, rmBits, modBits, W, dispDirAVal);
-			
-			//Build output string
-			if(D)
-			{	//XXX REG, R/M
-				sprintf(instrString, "%s %s, %s", mnemName, regName, rmName);
-			}
-			else
-			{	//XXX R/M, REG
-				sprintf(instrString, "%s %s, %s", mnemName, rmName, regName);
-			}
-		}
-/*
-		else if(instrForm==OpcodeeW_MdSubRgm_Disp_Disp_Data_DatW || instrForm==OpcoWReg_Data_Datw)
-		{ 
-			
-			if(instrForm==OpcoWReg_Data_Datw)
-			{
-				DEBUG_PRINT("  Instruction identified: (MOV_IMM_TO_REG)\n");
-				DEBUG_PRINT("  Instruction format: OpcoWReg_Datadata_Dataaifw\n");
-				///MOV_IMM_TO_REG
-				W = (instrP[0] & 0b00001000);
-				modBits = 0b11; //Set RM to REG mode.
-				rmBits = (instrP[0]&0b00000111);
-				dispSz = 0;
-				printf("DELICIOUS IMM_TO_REG\n");
-				instrSz = 1 + (1+(char)W);
-			}
-			else
-			{
-				///MOV_IMM_TO_RM
-				DEBUG_PRINT("  Instruction identified: (MOV_IMM_TO_RM)\n");
-				DEBUG_PRINT("  Instruction format: OpcodeeW_MdSubRgm_DisplcLo_DisplcHi_Datadata_Dataaifw\n");
-				W = (instrP[0] & 0b00000001);
-				modBits = instrP[1]>>6;
-				rmBits = (instrP[1]&0b00000111);
-				dispSz = modBits%3;
-				instrSz = 2 + dispSz + (1+(char)W);
-			}
-			DEBUG_PRINT(modMsgs[modBits]);
-			DEBUG_PRINT("  %s\n", W?"(W) MOV 2 bytes":"(!W) MOV 1 byte");
-			
-			//DISP
-			if(modBits == 0b01)
-			{
-				dispDirAVal = valFromUCharP(instrP+2, USE_BYTE);
-			}
-			else if(modBits == 0b10)
-			{
-				dispDirAVal = valFromUCharP(instrP+2, USE_WORD);
-			}
-			
-			//RM name generation
-			fillRmName(rmName, rmBits, modBits, W, dispDirAVal);
-			
-			//DATA / Build output string
-			if(instrType==MOV_IMM_TO_REG)
-			{
-				dataVal = valFromUCharP(instrP+1, W);
-				sprintf(instrString, "mov %s, %i", rmName, dataVal);
-			}
-			else///MOV_IMM_TO_RM
-			{
+			case S1oooooReg: //to:with REG
+			{///xchg, inc, dec
+				fillRegName(regName, instrP[0]&0b00000111, USE_WORD);
+				instrSz = 1;
+				
+				DEBUG_PRINT("  opForm: S1oooooReg\n");
+				DEBUG_PRINT("  Mnem: %s (to:with REG) Size: %i\n", mnemName, instrSz);
+				
+				//Build output string
+				if( !strcmp(mnemName, "xchg") )
+				{
+					//(2 operands)
+					sprintf(instrString, "%s ax, %s", mnemName, regName);
+				}
+				else
+				{
+					//(1 operand)
+					sprintf(instrString, "%s %s", mnemName, regName);
+				}
+			}break;
+			case S4ooooooDW_MdRegRgm_Di_Di: //RM to:from REG
+			{///MOV, XCHG(D), ADD, SUB, CMP, OR, XOR
+				D = theseBitsMatch(instrP, "xxxxxx1x");
+				W = theseBitsMatch(instrP, "xxxxxxx1");
+				modBitsVal = instrP[1]>>6;
+				regBitsVal = (instrP[1]&0b00111000)>>3;
+				rmBitsVal = (instrP[1]&0b00000111);
+				dispSz = modBitsVal%3;
+				instrSz = 2 + dispSz;
+	
+				DEBUG_PRINT("  opForm: S4ooooooDW_MdRegRgm_Di_Di\n");
+				DEBUG_PRINT("  %s (RM TO:FROM REG)\n", mnemName);
+				DEBUG_printBoolStatus(D, "D");
+				DEBUG_printBoolStatus(W, "W");
+				DEBUG_PRINT(modMsgs[modBitsVal]);
+				
+				//DISP value calc
+				if(modBitsVal == 0b01)
+				{
+					dispVal = valFromUCharP(instrP+2, USE_BYTE);
+				}
+				else if(modBitsVal == 0b10)
+				{
+					dispVal = valFromUCharP(instrP+2, USE_WORD);
+				}
+				else if(modBitsVal==0b00 && rmBitsVal==0b110)
+				{
+					//Special DIRECT ACCESS case
+					instrSz+=2;
+					dispVal = valFromUCharP(instrP+2, USE_WORD);
+				}
+				
+				//REG name generation
+				fillRegName(regName, regBitsVal, W);
+				//RM name generation
+				fillRmName(rmName, rmBitsVal, modBitsVal, W, dispVal);
+				
+				//Build output string
+				if(D)
+				{	//XXX REG, R/M
+					sprintf(instrString, "%s %s, %s", mnemName, regName, rmName);
+				}
+				else
+				{	//XXX R/M, REG
+					sprintf(instrString, "%s %s, %s", mnemName, rmName, regName);
+				}
+			}break;
+			case S6oooooooW_MdSubRgm_Di_Di_Da_Da: //IMM to RM
+			{///MOV, add, or, adc, sbb, and, sub, adc, cmp
+				S = theseBitsMatch(instrP, "xxxxxx1x");
+				W = theseBitsMatch(instrP, "xxxxxxx1");
+				modBitsVal = instrP[1]>>6;
+				rmBitsVal = (instrP[1]&0b00000111);
+				dispSz = modBitsVal%3;
+				dataSz = 1 + (char)W;
+				instrSz = 2 + dispSz + dataSz;
+				
+				DEBUG_printBoolStatus(S, "S");
+				DEBUG_printBoolStatus(W, "W");
+				DEBUG_PRINT(modMsgs[modBitsVal]);
+				DEBUG_PRINT("  opForm: S6oooooooW_MdSubRgm_Di_Di_Da_Da\n");
+				DEBUG_PRINT("  %s (IMM to RM)\n", mnemName);
+				
+				//DISP value calc
+				if(modBitsVal == 0b01)
+				{
+					dispVal = valFromUCharP(instrP+2, USE_BYTE);
+				}
+				else if(modBitsVal == 0b10)
+				{
+					dispVal = valFromUCharP(instrP+2, USE_WORD);
+				}
+				else if(modBitsVal==0b00 && rmBitsVal==0b110)
+				{
+					//DIRECT ACCESS special case
+					dispSz = 2;
+					instrSz += instrSz;
+					dispVal = valFromUCharP(instrP+2, USE_WORD);
+				}
+				
+				//DATA
 				dataVal = valFromUCharP(instrP+2+dispSz, W);
-				sprintf(instrString, "mov %s, %s %i", rmName, W?"word":"byte", dataVal);
+				
+				//RM name generation
+				fillRmName(rmName, rmBitsVal, modBitsVal, W, dispVal);
+				
+				//Build output string
+				sprintf(instrString, "%s %s, %s", mnemName, rmName, dataVal);
+			}break;
+			case S3ooooWReg_Datadata_Datadatw: //IMM to REG
+			{///MOV
+				W = theseBitsMatch(instrP, "xxxx1xxx");
+				regBitsVal = (instrP[0]&0b00000111);
+				dataSz = 1 + (char)W;
+				instrSz = 1 + dataSz;
+				
+				DEBUG_printBoolStatus(W, "W");
+				DEBUG_PRINT("  opForm: S3ooooWReg_Datadata_Datadatw\n");
+				DEBUG_PRINT("  %s (IMM to REG)\n", mnemName);
+				
+				//DATA
+				dataVal = valFromUCharP(instrP+1, W);
+				
+				//REG name generation
+				fillRegName(regName, regBitsVal, W);
+				
+				//Build output string
+				sprintf(instrString, "%s %s, %i", mnemName, regName, dataVal);
+			}break;
+			default:
+			{///ERROR
+				printf("ERROR: Unrecognized instruction type. Terminating.\n");
+				return 1;
 			}
-		}
-		else if(instrType == MOV_MEM_TO_ACC)
-		{///MOV_MEM_TO_ACC
-			DEBUG_PRINT("  Instruction identified: (MOV_MEM_TO_ACC)\n");
-			DEBUG_PRINT("  Instruction format: 1010000W addr--lo addr--hi\n");
-			W = (instrP[0] & 0b00000001);
-			DEBUG_PRINT("  %s\n", W?"(W) MOV 2 bytes":"(!W) MOV 1 byte");
-			
-			//addr (stored in dispDirAVal)
-			if(W)
-			{
-				dispDirAVal = valFromUCharP(instrP+1, USE_WORD);
-				instrSz = 3;
-			}
-			else
-			{
-				dispDirAVal = valFromUCharP(instrP+1, USE_BYTE);
-				instrSz = 2;
-			}
-			
-			//Build output string
-			sprintf(instrString, "mov ax, [%i]", dispDirAVal);
-		}
-		else if(instrType == MOV_ACC_TO_MEM)
-		{///MOV_ACC_TO_MEM
-			DEBUG_PRINT("  Instruction identified: (MOV_ACC_TO_MEM)\n");
-			DEBUG_PRINT("  Instruction format: 1010001W addr--lo addr--hi\n");
-			W = (instrP[0] & 0b00000001);
-			instrSz = 2 + (char)W;
-			DEBUG_PRINT("  %s\n", W?"(W) MOV 2 bytes":"(!W) MOV 1 byte");
-			
-			//addr (stored in dispDirAVal)
-			dispDirAVal = valFromUCharP(instrP+1, W);
-			
-			//Build output string
-			sprintf(instrString, "mov [%i], ax", dispDirAVal);
-		}
-*/
-		else ///ERROR
-		{
-			printf("ERROR: Unrecognized instruction type. Terminating.\n");
-			return 1;
 		}
 		
 		//WRITE instruction to output file
@@ -323,12 +309,11 @@ int main(int argc, char *argv[])
 		DEBUG_PRINT("  Successfully disassembled -> \"%s\" [Writing...]\n", instrString);
 		
 		//Loop upkeep
-		DEBUG_PRINT("  Instruction size: %i\n  ", instrSz);
-		if(DEBUG){printBits(instrP, instrSz, 0);}
+		DEBUG_PRINT("  Instruction size: %i\n", instrSz);
 		instrP += instrSz;
 		instrsProcessed++;
 		bytesProcessed = instrP-inBytes;
-		DEBUG_PRINT("\n  Bytes processed: %i/%i\n", instrP-inBytes, fInSz);
+		DEBUG_PRINT("  Bytes processed: %i/%i\n", instrP-inBytes, fInSz);
 	}
 	//End of disassembling
 
@@ -355,7 +340,7 @@ int main(int argc, char *argv[])
 }
 //END MAIN
 
-void fillRegName(char regName[], char regBits, bool W)
+void fillRegName(char regName[], char regBitsVal, bool W)
 {
 	//                W? 01 R/M
 	char regNameMatrix[2][2][8]=
@@ -367,20 +352,20 @@ void fillRegName(char regName[], char regBits, bool W)
 		'x', 'x', 'x', 'x', 'p', 'p', 'i', 'i'
 	};
 	
-	regName[0] = regNameMatrix[(char)W][0][regBits];
-	regName[1] = regNameMatrix[(char)W][1][regBits];
+	regName[0] = regNameMatrix[(char)W][0][regBitsVal];
+	regName[1] = regNameMatrix[(char)W][1][regBitsVal];
 	regName[2] = '\0';
 	
-	DEBUG_PRINT("  REG is: %s\n", regName);
+	DEBUG_PRINT("  REG name: %s\n", regName);
 }
-void fillRmName(char rmName[], char rmBits, char modBits, bool W, short dispDA)
+void fillRmName(char rmName[], char rmBitsVal, char modBitsVal, bool W, short dispDA)
 {
-	if(modBits == 0b11)
+	if(modBitsVal == 0b11)
 	{
-		DEBUG_PRINT("  This R/M tastes a lot like a REG.\n");
-		fillRegName(rmName, rmBits, W);
+		fillRegName(rmName, rmBitsVal, W);
+		DEBUG_PRINT("  ^Actually an R/M; it's merely REG-flavored!\n");
 	}
-	else if(modBits==0b00 && rmBits==0b110)
+	else if(modBitsVal==0b00 && rmBitsVal==0b110)
 	{
 		//The special case
 		sprintf(rmName, "[%i]", dispDA);
@@ -390,19 +375,19 @@ void fillRmName(char rmName[], char rmBits, char modBits, bool W, short dispDA)
 		//We know we aren't MOD=11, and we aren't the special DIRECT ADDRESS case.
 		//Besides that, this block is MOD agnostic.
 		//See table 4.10 on page 4.20.
-		if     (rmBits==0b000){strcpy(rmName, "[bx + si");}
-		else if(rmBits==0b001){strcpy(rmName, "[bx + di");}
-		else if(rmBits==0b010){strcpy(rmName, "[bp + si");}
-		else if(rmBits==0b011){strcpy(rmName, "[bp + di");}
-		else if(rmBits==0b100){strcpy(rmName, "[si");}
-		else if(rmBits==0b101){strcpy(rmName, "[di");}
-		else if(rmBits==0b110){strcpy(rmName, "[bp");}
-		else if(rmBits==0b111){strcpy(rmName, "[bx");}
+		if     (rmBitsVal==0b000){strcpy(rmName, "[bx + si");}
+		else if(rmBitsVal==0b001){strcpy(rmName, "[bx + di");}
+		else if(rmBitsVal==0b010){strcpy(rmName, "[bp + si");}
+		else if(rmBitsVal==0b011){strcpy(rmName, "[bp + di");}
+		else if(rmBitsVal==0b100){strcpy(rmName, "[si");}
+		else if(rmBitsVal==0b101){strcpy(rmName, "[di");}
+		else if(rmBitsVal==0b110){strcpy(rmName, "[bp");}
+		else if(rmBitsVal==0b111){strcpy(rmName, "[bx");}
 		else{printf("ERROR DISASSEMBLING R/M");}
 		
 		//But we need to CONCATENATE a little more!
 		//Just the disp for MOD=01 and MOD=10, then final bracket
-		if(modBits==0b01 || modBits==0b10)
+		if(modBitsVal==0b01 || modBitsVal==0b10)
 		{
 			if(dispDA >= 0)
 			{
@@ -421,20 +406,27 @@ void fillRmName(char rmName[], char rmBits, char modBits, bool W, short dispDA)
 		//Everyone here gets a bracket!
 		strncat(rmName, "]", 2);
 	}
-	DEBUG_PRINT("  R/M is: %s\n", rmName);
+	if(modBitsVal != 0b11)
+	{
+		//fillRegName will have already printed the value.
+		DEBUG_PRINT("  RM name: %s\n", rmName);
+	}
 }
 short valFromUCharP(unsigned char *charP, bool word)
 {
+	//Always returns signed value.
 	if(word)
 	{
+		//Also use charP+1 to make a short
 		return * ((short*)charP);
 	}
 	else
 	{
+		//Just use charP
 		return (char)*charP;
 	}
 }
-void printBits(unsigned char *startP, int size, int columns)
+void DEBUG_printBytesIn01s(unsigned char *startP, int size, int columns)
 {
 	for(int i=0 ; i<size ; i++)
 	{
@@ -451,4 +443,31 @@ void printBits(unsigned char *startP, int size, int columns)
 			printf("\n");
 		}
 	}	
+}
+void DEBUG_printBoolStatus(bool argBool, char boolName[])
+{
+	//Prints boolName, adds a ! before it if !argBool
+	DEBUG_PRINT("  %s%s\n", argBool?"":"!",boolName);
+}
+bool theseBitsMatch(unsigned char* instrP, char opString[])
+{
+	//Takes in a pointer to an opcode bit and a string literal
+	//representing an instruction format. Non-zero, non-one
+	//chars in the string mask non-opcode bits. So "1011WReg",
+	//for example, is a valid argument for opString.
+	
+	unsigned char checkedBit = 	0b10000000;
+	bool bitNeedsChecking, bitMatches;
+	
+	for(int i=0 ; i<8 ; i++)
+	{
+		bitNeedsChecking = (opString[i]=='1') || (opString[i]=='0');		
+		bitMatches = (bool)((*instrP)&checkedBit>>i) == (bool)(opString[i]=='1');
+		
+		if( bitNeedsChecking && !bitMatches )
+		{
+			return false;
+		}
+	}
+	return true;
 }
