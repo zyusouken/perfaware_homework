@@ -25,5 +25,5 @@ echo.
 echo.
 echo.
 echo [Re-assembling and comparing with source file...]
-nasm %hwName%_disass_output.asm
+nasm.exe %hwName%_disass_output.asm
 FC /B %arg1% %hwName%_disass_output
