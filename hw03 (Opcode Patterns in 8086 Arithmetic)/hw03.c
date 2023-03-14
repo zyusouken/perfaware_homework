@@ -9,44 +9,30 @@ bool DEBUG=1;
 enum ///Formats (Compatible mnemonics are listed below each format.)
 {
 //MAX size 1
-
 	S1oooooReg, //to:with REG
 	///XCHG, INC, DEC
-	
 	S1oooooooW, //Variable port?
 	///IN, OUT
-
 //MAX size 2
-	
 	S2oooooooW_Datadata, //Fixed port?
 	///IN, OUT
-	
+	S2oooooooo_LABEL,
+	///Lots of jumps
 //MAX size 3
-
-	S3ooooWReg_Datadata_Datadatw, //IMM to REG
+	S3ooooWReg_Data_Datw, //IMM to REG
 	///MOV
-	
-	S3oooooooW_AdDa_AdDa, //IMM or MEM tofrom ACC (AdDa is address OR data)
-	///MOV, ADD, SUB, CMP(!W)
-	
+	S3oooooooW_DaAd_DaAw, //IMM or MEM tofrom ACC (DaAd is Data||Address)
+	///MOV, ADD, SUB, CMP(data size always 1)
 //MAX size 4
-	
-	S4ooooooDW_MdRegRgm_Di_Di, //RM to:from REG
+	S4ooooooDW_MdRegRgm_Disp_Disp, //RM to:from REG
 	///MOV, XCHG(D), ADD, SUB, CMP, OR, XOR
-	
-	S4oooooooo_MdUSrRgm_DisplcLo_DisplcHi, //U=subOp RM tofrom SEGREG
+	S4oooooooo_MdUSrRgm_Disp_Disp, //U=subOp RM tofrom SEGREG
 	///MOV
-	
 //MAX size 6
-	
 	S6oooooooW_DATADATA_Di_Di_Da_Da,
 	///XOR
-
-	S6oooooooW_MdSubRgm_Di_Di_Da_Da, //IMM to RM
-	///MOV, add, or, adc, sbb, and, sub, adc, cmp
-
-//Buffer
-	ENUM_COMMA_BUFFER
+	S6ooooooSW_MdSubRgm_Di_Di_Da_Da //IMM to RM
+	///mov (D instead of S), add, or, adc, sbb, and(S), sub, adc, cmp
 };
 
 bool theseBitsMatch(unsigned char* instrP, char opString[]);
@@ -54,26 +40,40 @@ short valFromUCharP(unsigned char *charP, bool W);
 void fillRegName(char regName[], char regBitsVal, bool W);
 void fillRmName(char rmName[], char rmBitsVal, char modBitsVal, bool W, short disp);
 void DEBUG_printBytesIn01s(unsigned char *startP, int size, int columns);
+void ERROR_TERMINATE(unsigned char *inBytesP,unsigned char *instrSizes,unsigned long long int instrsDone,char msg[]);
 
-bool D;
-bool W;
-bool S;
+unsigned long int instrsDone=0;
+unsigned long int bytesDone=0;
+bool W, S, D, V, Z;
+bool MemAddrMode; //If false, dataOrAddr is immediate data.
 short dispVal; //For displacement (including DIRECT ACCESS)
-short dataVal;
-unsigned char opForm;
-unsigned char instrSz;
-unsigned char subOpVal; //Bits that distinguish instructions with identical first-byte opcodes
-unsigned char dispSz;
+short dataOrAddr;
 unsigned char dataSz;
+unsigned char dispSz;
+unsigned char instrSz;
+unsigned char opForm;
 unsigned char modBitsVal;
 unsigned char regBitsVal;
 unsigned char rmBitsVal;
-char mnemName[8]; //Mnemonics like mov, add, sub, pushad, etc
-char regName[3]; //Human-readable REG operand
-char rmName[32]; //Human-readable R/M operand
-char instrString[32];
+unsigned char subOpVal;
+char mnemName[8], regName[3], rmName[32], instrString[32];
+const char mnems100000[8][8]=
+{
+	//Mnemonics for all operations that collide on instrP byte [0] opcode 100000xx,
+	//sorted by binary value of there subOp bits from byte [1].
+	"add\0\0\0\0"/*000*/, "or\0\0\0\0\0"/*001*/, "adc\0\0\0\0"/*010*/, "sbb\0\0\0\0"/*011*/,
+	"and\0\0\0\0"/*100*/, "sub\0\0\0\0"/*101*/, "???\0\0\0\0"/*110*/, "cmp\0\0\0\0"/*111*/
+};
+const char modMsgs[4][64]=
+{
+	"  MOD: 00 (Mem Mode, no disp)\n", "  MOD: 01 (Mem Mode, 8-bit disp)\n",
+	"  MOD: 10 (Mem Mode, 16-bit disp)\n", "  MOD: 11 (Reg Mode, no disp)\n"
+};
 
 
+/// //////////////////////////////////////// ///
+/// ///               MAIN               /// ///
+/// //////////////////////////////////////// ///
 int main(int argc, char *argv[])
 {
 	//Get file(s)
@@ -84,13 +84,27 @@ int main(int argc, char *argv[])
 	fseek(fInP, 0L, SEEK_END); //Set file position to end
 	int fInSz = ftell(fInP); //Store position (file size)
 	fseek(fInP, 0L, SEEK_SET);//Return to start of file
-
+	
+	//We'll store instr strings here until writing to out file.
+	char instrStrings[fInSz][32];
+	unsigned char instrSizes[fInSz];
+	
+	//These are the bytes after which we will write labels in the final asm.
+	unsigned long int labelCount=0;
+	unsigned long int labelIndex;
+	bool labelExists;
+	unsigned long int labelIndices[fInSz];
+	
 	//Get file contents
 	unsigned char inBytes[fInSz];
 	for(int i=0 ; i<fInSz ; i++)
 	{
 		inBytes[i] = fgetc(fInP);
 	}
+
+	/// /// ///DEBUG manual bin override:
+	//unsigned char inBytes[2] = {0b00111101, 0b00000011}; fInSz = sizeof(inBytes);
+	/// /// ///Note that file comparison at the end of the program will always fail.
 	
 	//For iterating through instructions
 	unsigned char *instrP = inBytes;
@@ -99,31 +113,12 @@ int main(int argc, char *argv[])
 	DEBUG_PRINT("\n\"%s\" bin size is %i. Contents:\n\n", argv[1], fInSz);
 	DEBUG_printBytesIn01s(inBytes, fInSz, 4);
 	DEBUG_PRINT("\n\n");
-	
-	//Startup vars and constants
-	unsigned long long int instrsProcessed=0;
-	unsigned long long int bytesProcessed=0;
-	const char mnems100000[8][8]=
-	{
-		//Mnemonics for all operations that collide on instrP byte [0] opcode 100000xx,
-		//sorted by binary value of there subOp bits from byte [1].
-		"add\0\0\0\0"/*000*/, "or\0\0\0\0\0"/*001*/, "adc\0\0\0\0"/*010*/, "sbb\0\0\0\0"/*011*/,
-		"and\0\0\0\0"/*100*/, "sub\0\0\0\0"/*101*/, "???\0\0\0\0"/*110*/, "cmp\0\0\0\0"/*111*/
-	};
-	const char modMsgs[4][64]=
-	{
-		"  MOD: 00 (Mem Mode, no disp)\n", "  MOD: 01 (Mem Mode, 8-bit disp)\n",
-		"  MOD: 10 (Mem Mode, 16-bit disp)\n", "  MOD: 11 (Reg Mode, no disp)\n"
-	};
-	
-	//WRITE bit width directive to output file
-	fprintf(fOutP, "%s", "bits 16\n");
-	
+		
 	//MASTER LOOP
-	while(bytesProcessed < fInSz)
+	while(bytesDone < fInSz)
 	{///Each iteration disassembles one instruction
 
-		DEBUG_PRINT("Beginning work on instruction %i. ", instrsProcessed+1);
+		DEBUG_PRINT("Beginning work on instruction %i. ", instrsDone+1);
 		DEBUG_PRINT("First byte: ");
 		DEBUG_printBytesIn01s(instrP, 1, 0);
 		DEBUG_PRINT("\n");
@@ -135,34 +130,52 @@ int main(int argc, char *argv[])
 		else if(theseBitsMatch(instrP,"01001reg")){opForm=  S1oooooReg  ;strcpy(mnemName,"dec");}///to:with REG
 		else if(theseBitsMatch(instrP,"1110110w")){opForm=  S1oooooooW  ;strcpy(mnemName,"in");}///Fixed port
 		else if(theseBitsMatch(instrP,"1110111w")){opForm=  S1oooooooW  ;strcpy(mnemName,"out");}///Variable port
+		else if(theseBitsMatch(instrP,"01110100")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"je");}
+		else if(theseBitsMatch(instrP,"01111100")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jl");}
+		else if(theseBitsMatch(instrP,"01111110")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jle");}
+		else if(theseBitsMatch(instrP,"01110010")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jb");}
+		else if(theseBitsMatch(instrP,"01110110")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jbe");}
+		else if(theseBitsMatch(instrP,"01111010")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jp");}
+		else if(theseBitsMatch(instrP,"01110000")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jo");}
+		else if(theseBitsMatch(instrP,"01111000")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"js");}
+		else if(theseBitsMatch(instrP,"01110101")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jnz");}
+		else if(theseBitsMatch(instrP,"01111101")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jnl");}
+		else if(theseBitsMatch(instrP,"01111111")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jg");}
+		else if(theseBitsMatch(instrP,"01110011")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jnb");}
+		else if(theseBitsMatch(instrP,"01110111")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"ja");}
+		else if(theseBitsMatch(instrP,"01111011")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jnp");}
+		else if(theseBitsMatch(instrP,"01110001")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jno");}
+		else if(theseBitsMatch(instrP,"01111001")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jns");}
+		else if(theseBitsMatch(instrP,"11100010")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"loop");}
+		else if(theseBitsMatch(instrP,"11100001")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"loopz");}
+		else if(theseBitsMatch(instrP,"11100000")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"loopnz");}
+		else if(theseBitsMatch(instrP,"11100011")){opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jcxz");}
 		else if(theseBitsMatch(instrP,"1110010w")){opForm=  S2oooooooW_Datadata  ;strcpy(mnemName,"in");}///Fixed port
 		else if(theseBitsMatch(instrP,"1110011w")){opForm=  S2oooooooW_Datadata  ;strcpy(mnemName,"out");}///Variable port
-		else if(theseBitsMatch(instrP,"1010000w")){opForm=  S3oooooooW_AdDa_AdDa  ;strcpy(mnemName,"mov");}///MEM to ACC
-		else if(theseBitsMatch(instrP,"1010001w")){opForm=  S3oooooooW_AdDa_AdDa  ;strcpy(mnemName,"mov");}///ACC to MEM
-		else if(theseBitsMatch(instrP,"0000010w")){opForm=  S3oooooooW_AdDa_AdDa  ;strcpy(mnemName,"add");}///IMM to ACC
-		else if(theseBitsMatch(instrP,"0001010w")){opForm=  S3oooooooW_AdDa_AdDa  ;strcpy(mnemName,"adc");}///IMM to ACC
-		else if(theseBitsMatch(instrP,"0010110w")){opForm=  S3oooooooW_AdDa_AdDa  ;strcpy(mnemName,"sub");}///IMM (from) ACC
-		else if(theseBitsMatch(instrP,"0001110w")){opForm=  S3oooooooW_AdDa_AdDa  ;strcpy(mnemName,"sbb");}///IMM (from) ACC
-		else if(theseBitsMatch(instrP,"1011wreg")){opForm=  S3ooooWReg_Datadata_Datadatw  ;strcpy(mnemName,"mov");}///IMM to REG
-		else if(theseBitsMatch(instrP,"100010dw")){opForm=  S4ooooooDW_MdRegRgm_Di_Di  ;strcpy(mnemName,"mov");}///RM to:from REG
-		else if(theseBitsMatch(instrP,"1000011x")){opForm=  S4ooooooDW_MdRegRgm_Di_Di  ;strcpy(mnemName,"xchg");}///ALWAYS D
-		else if(theseBitsMatch(instrP,"000000dw")){opForm=  S4ooooooDW_MdRegRgm_Di_Di  ;strcpy(mnemName,"add");}///RM to:from REG
-		else if(theseBitsMatch(instrP,"001010dw")){opForm=  S4ooooooDW_MdRegRgm_Di_Di  ;strcpy(mnemName,"sub");}///RM to:from REG
-		else if(theseBitsMatch(instrP,"001110dw")){opForm=  S4ooooooDW_MdRegRgm_Di_Di  ;strcpy(mnemName,"cmp");}///RM to:from REG
+		else if(theseBitsMatch(instrP,"1010000w")){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"mov");}///MEM to ACC
+		else if(theseBitsMatch(instrP,"1010001w")){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"mov");}///ACC to MEM
+		else if(theseBitsMatch(instrP,"0000010w")){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"add");}///IMM to ACC
+		else if(theseBitsMatch(instrP,"0001010w")){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"adc");}///IMM to ACC
+		else if(theseBitsMatch(instrP,"0010110w")){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"sub");}///IMM (from) ACC
+		else if(theseBitsMatch(instrP,"0001110w")){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"sbb");}///IMM (from) ACC
+		else if(theseBitsMatch(instrP,"0011110w")){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"cmp");}///IMM (from) ACC
+		else if(theseBitsMatch(instrP,"1011wreg")){opForm=  S3ooooWReg_Data_Datw  ;strcpy(mnemName,"mov");}///IMM to REG
+		else if(theseBitsMatch(instrP,"100010dw")){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"mov");}///RM to:from REG
+		else if(theseBitsMatch(instrP,"1000011x")){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"xchg");}///ALWAYS D
+		else if(theseBitsMatch(instrP,"000000dw")){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"add");}///RM to:from REG
+		else if(theseBitsMatch(instrP,"001010dw")){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"sub");}///RM to:from REG
+		else if(theseBitsMatch(instrP,"001110dw")){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"cmp");}///RM to:from REG
 		else if(theseBitsMatch(instrP,"0011010w")){opForm=  S6oooooooW_DATADATA_Di_Di_Da_Da;  strcpy(mnemName, "xor");}
-		else if(theseBitsMatch(instrP,"1100011w")){opForm=  S6oooooooW_MdSubRgm_Di_Di_Da_Da;  strcpy(mnemName, "mov");}///ALWAYS S
-		else if(theseBitsMatch(instrP,"1111011w")){opForm=  S6oooooooW_MdSubRgm_Di_Di_Da_Da;  strcpy(mnemName, "test");}
-		else if(theseBitsMatch(instrP,"100000xx"))        //S6oooooooW_MdSubRgm_Di_Di_Da_Da
+		else if(theseBitsMatch(instrP,"1100011w")){opForm=  S6ooooooSW_MdSubRgm_Di_Di_Da_Da;  strcpy(mnemName, "mov");}///ALWAYS S
+		else if(theseBitsMatch(instrP,"1111011w")){opForm=  S6ooooooSW_MdSubRgm_Di_Di_Da_Da;  strcpy(mnemName, "test");}
+		else if(theseBitsMatch(instrP,"100000xx"))        //S6ooooooSW_MdSubRgm_Di_Di_Da_Da
 		{
 			//add, or, adc, sbb, and, sub, adc, cmp
-			opForm = S6oooooooW_MdSubRgm_Di_Di_Da_Da;
+			opForm = S6ooooooSW_MdSubRgm_Di_Di_Da_Da;
 			subOpVal = (instrP[1]&0b00111000)>>3;
 			strcpy(mnemName, mnems100000[subOpVal]);
 		}
-		else{printf("ERROR slecting mnemonic. [Terminating...]"); return 1;}
-		
-		//WRITE newline to file for every instruction after the first
-		if(bytesProcessed)fprintf(fOutP, "\n");
+		else{ERROR_TERMINATE(inBytes, instrSizes, instrsDone, "ERROR SELECTING MNEMONIC."); return 0;}
 		
 		//Select disassembly logic
 		switch(opForm)
@@ -173,21 +186,21 @@ int main(int argc, char *argv[])
 				instrSz = 1;
 				
 				DEBUG_PRINT("  opForm: S1oooooReg\n");
-				DEBUG_PRINT("  Mnem: %s (to:with REG) Size: %i\n", mnemName, instrSz);
+				DEBUG_PRINT("  %s (to:with REG) Size: %i\n", mnemName, instrSz);
 				
 				//Build output string
 				if( !strcmp(mnemName, "xchg") )
 				{
 					//(2 operands)
-					sprintf(instrString, "%s ax, %s", mnemName, regName);
+					sprintf(instrStrings[instrsDone], "%s ax, %s", mnemName, regName);
 				}
 				else
 				{
 					//(1 operand)
-					sprintf(instrString, "%s %s", mnemName, regName);
+					sprintf(instrStrings[instrsDone], "%s %s", mnemName, regName);
 				}
 			}break;
-			case S4ooooooDW_MdRegRgm_Di_Di: //RM to:from REG
+			case S4ooooooDW_MdRegRgm_Disp_Disp: //RM to:from REG
 			{///MOV, XCHG(D), ADD, SUB, CMP, OR, XOR
 				D = theseBitsMatch(instrP, "xxxxxx1x");
 				W = theseBitsMatch(instrP, "xxxxxxx1");
@@ -197,11 +210,14 @@ int main(int argc, char *argv[])
 				dispSz = modBitsVal%3;
 				instrSz = 2 + dispSz;
 	
-				DEBUG_PRINT("  opForm: S4ooooooDW_MdRegRgm_Di_Di\n");
+				DEBUG_PRINT("  opForm: S4ooooooDW_MdRegRgm_Disp_Disp\n");
 				DEBUG_PRINT("  %s (RM TO:FROM REG)\n", mnemName);
 				DEBUG_PRINT("  %s\n", D?"D":"!D");
 				DEBUG_PRINT("  %s\n", W?"W":"!W");
 				DEBUG_PRINT(modMsgs[modBitsVal]);
+				printf("  dispSize = %i\n", dispSz);
+				printf("  modBits = %i\n", modBitsVal);
+				printf("  modBits%3 = %i\n", modBitsVal%3);
 				
 				//DISP value calc
 				if(modBitsVal == 0b01)
@@ -227,28 +243,39 @@ int main(int argc, char *argv[])
 				//Build output string
 				if(D)
 				{	//XXX REG, R/M
-					sprintf(instrString, "%s %s, %s", mnemName, regName, rmName);
+					sprintf(instrStrings[instrsDone], "%s %s, %s", mnemName, regName, rmName);
 				}
 				else
 				{	//XXX R/M, REG
-					sprintf(instrString, "%s %s, %s", mnemName, rmName, regName);
+					sprintf(instrStrings[instrsDone], "%s %s, %s", mnemName, rmName, regName);
 				}
 			}break;
-			case S6oooooooW_MdSubRgm_Di_Di_Da_Da: //IMM to RM
+			case S6ooooooSW_MdSubRgm_Di_Di_Da_Da: //IMM to RM
 			{///MOV, add, or, adc, sbb, and, sub, adc, cmp
 				S = theseBitsMatch(instrP, "xxxxxx1x");
 				W = theseBitsMatch(instrP, "xxxxxxx1");
 				modBitsVal = instrP[1]>>6;
 				rmBitsVal = (instrP[1]&0b00000111);
 				dispSz = modBitsVal%3;
-				dataSz = 1 + (char)W;
+				
+				if( !strcmp(mnemName, "mov") )
+				{
+					//mov doesn't have S, only cares about W
+					dataSz = 1 + (char)W;
+				}
+				else
+				{
+					//"and" doesn't have s, but may as well.
+					dataSz = 1 + (char)(W && !S);
+				}
+				
 				instrSz = 2 + dispSz + dataSz;
 				
-				DEBUG_PRINT("  %s\n", S?"S":"!S");
-				DEBUG_PRINT("  %s\n", D?"D":"!D");
-				DEBUG_PRINT(modMsgs[modBitsVal]);
-				DEBUG_PRINT("  opForm: S6oooooooW_MdSubRgm_Di_Di_Da_Da\n");
+				DEBUG_PRINT("  opForm: S6ooooooSW_MdSubRgm_Di_Di_Da_Da\n");
 				DEBUG_PRINT("  %s (IMM to RM)\n", mnemName);
+				DEBUG_PRINT("  %s\n", S?"S":"!S");
+				DEBUG_PRINT("  %s\n", W?"W":"!W");
+				DEBUG_PRINT(modMsgs[modBitsVal]);
 				
 				//DISP value calc
 				if(modBitsVal == 0b01)
@@ -263,38 +290,107 @@ int main(int argc, char *argv[])
 				{
 					//DIRECT ACCESS special case
 					dispSz = 2;
-					instrSz += instrSz;
+					instrSz += dispSz;
 					dispVal = valFromUCharP(instrP+2, USE_WORD);
 				}
 				
 				//DATA
-				dataVal = valFromUCharP(instrP+2+dispSz, W);
+				dataOrAddr = valFromUCharP(instrP+2+dispSz, (dataSz>1));
+				MemAddrMode = false;
 				
 				//RM name generation
 				fillRmName(rmName, rmBitsVal, modBitsVal, W, dispVal);
 				
 				//Build output string
-				sprintf(instrString, "%s %s, %s", mnemName, rmName, dataVal);
+				if(modBitsVal == 0b11)
+				{
+					sprintf(instrStrings[instrsDone], "%s %s, %i", mnemName, rmName, dataOrAddr);
+				}
+				else
+				{
+					sprintf(instrStrings[instrsDone], "%s %s, %s %i", mnemName, rmName, W?"word":"byte", dataOrAddr);
+				}
 			}break;
-			case S3ooooWReg_Datadata_Datadatw: //IMM to REG
+			case S3ooooWReg_Data_Datw: //IMM to REG
 			{///MOV
 				W = theseBitsMatch(instrP, "xxxx1xxx");
 				regBitsVal = (instrP[0]&0b00000111);
 				dataSz = 1 + (char)W;
 				instrSz = 1 + dataSz;
 				
-				DEBUG_PRINT("  %s\n", W?"W":"!W");
-				DEBUG_PRINT("  opForm: S3ooooWReg_Datadata_Datadatw\n");
+				DEBUG_PRINT("  opForm: S3ooooWReg_Data_Datw\n");
 				DEBUG_PRINT("  %s (IMM to REG)\n", mnemName);
+				DEBUG_PRINT("  %s\n", W?"W":"!W");
 				
-				//DATA
-				dataVal = valFromUCharP(instrP+1, W);
+				//DATA or ADDR
+				dataOrAddr = valFromUCharP(instrP+1, (dataSz>1));
+				MemAddrMode = !theseBitsMatch(instrP, "1011wreg");
 				
 				//REG name generation
 				fillRegName(regName, regBitsVal, W);
 				
 				//Build output string
-				sprintf(instrString, "%s %s, %i", mnemName, regName, dataVal);
+				sprintf(instrStrings[instrsDone], "%s %s, %i", mnemName, regName, dataOrAddr);
+			}break;
+			case S3oooooooW_DaAd_DaAw: //MEM:IMM to:from ACC
+			{///MOV, ADD, SUB, CMP(data size always 1)
+				//NOTE: We're using "xxxxxx0x" to flip the 7th bit,
+				//then using it as "D". If D, then ax is the Dest.
+				//This seems like it'll work, but time will tell.
+				W = theseBitsMatch(instrP, "xxxxxxx1");
+				D = theseBitsMatch(instrP, "xxxxxx0x");
+				dataSz = 1 + (char)W;
+				instrSz = 1 + dataSz;
+				
+				DEBUG_PRINT("  opForm: S3ooooWReg_Data_Datw\n");
+				DEBUG_PRINT("  %s (MEM:IMM to:from ACC)\n", mnemName);
+				DEBUG_PRINT("  %s\n", W?"W":"!W");
+				DEBUG_PRINT("  %s\n", D?"D pseudo (from flipped xxxxxx0x bit)":"!D pseudo (from flipped xxxxxx1x bit)");
+				
+				//DATA or ADDR
+				dataOrAddr = valFromUCharP(instrP+1, (dataSz>1));
+				MemAddrMode = theseBitsMatch(instrP, "101000xw"); /*mov only*/
+				
+				
+				//Build output string
+				if(D) //Mem address mode needs [brackets]. Use AX if W, else AL if !W.
+				{
+					sprintf(instrStrings[instrsDone], "%s %s, %s%i%s", mnemName, W?"ax":"al", MemAddrMode?"[":"", dataOrAddr, MemAddrMode?"]":"");
+				}///                                  mne a_,  [__]
+				else
+				{
+					sprintf(instrStrings[instrsDone], "%s %s%i%s, %s", mnemName, MemAddrMode?"[":"", dataOrAddr, MemAddrMode?"]":"", W?"ax":"al");
+				}///                                  mne  [__] , a_
+			}break;
+			case S2oooooooo_LABEL: //to label
+			{
+				dataOrAddr = valFromUCharP(instrP+1, USE_BYTE);
+				instrSz = 2;
+				
+				DEBUG_PRINT("  opForm: S2oooooooo_LABEL\n");
+				DEBUG_PRINT("  %s (to label)\n", mnemName);
+				DEBUG_PRINT("  Offset to label: %i\n", dataOrAddr);
+				
+				//Note that dataOrAddr is a byte offset for a label in this case.
+				labelIndex = bytesDone+instrSz+dataOrAddr;
+				
+				//Check for existence of this label.
+				labelExists = false;
+				for(int i=0 ; i<labelCount ; i++)
+				{
+					if(labelIndices[i] == labelIndex)
+					{
+						labelExists=true;
+					}
+				}
+				if(!labelExists)
+				{
+					labelIndices[labelCount] = labelIndex;
+					labelCount++;
+				}
+				
+				//Build output string
+				sprintf(instrStrings[instrsDone], "%s label%i", mnemName, labelIndex);
 			}break;
 			default:
 			{///ERROR
@@ -303,34 +399,74 @@ int main(int argc, char *argv[])
 			}
 		}
 		
-		//WRITE instruction to output file
-		fprintf(fOutP, instrString);
-		DEBUG_PRINT("  Successfully disassembled -> \"%s\" [Writing...]\n", instrString);
-		
 		//Loop upkeep
-		DEBUG_PRINT("  Instruction size: %i\n", instrSz);
+		DEBUG_PRINT("  Successfully disassembled -> \"%s\" [Writing...]\n", instrString);		
+		DEBUG_PRINT("  Instruction size: %i\n  ", instrSz);
+		DEBUG_printBytesIn01s(instrP, instrSz, 0); DEBUG_PRINT("\n");
 		instrP += instrSz;
-		instrsProcessed++;
-		bytesProcessed = instrP-inBytes;
+		bytesDone += instrSz;
+		//instrLengths[instrsDone] = strlen(instrString);
+		instrSizes[instrsDone++] = instrSz;
 		DEBUG_PRINT("  Bytes processed: %i/%i\n", instrP-inBytes, fInSz);
+	}//End of disassembling
+
+	if(labelCount)
+	{//Sort labels
+		bool labelsSorted = false;
+		unsigned long int labelBucket;
+		while(!labelsSorted)
+		{
+			//Each iteration makes one swapping pass
+			labelsSorted = true;
+			for(int i=0 ; i<(labelCount-1) ; i++)
+			{
+				if(labelIndices[i] > labelIndices[i+1])
+				{
+					//Switch i and i+1
+					labelBucket = labelIndices[i];
+					labelIndices[i] = labelIndices[i+1];
+					labelIndices[i+1] = labelBucket;
+					labelsSorted = false;
+				}
+			}
+		}
 	}
-	//End of disassembling
+	
+	//Write to output file
+	unsigned long int bytesWritten = 0;
+	unsigned long int labelsWritten = 0;
+	fprintf(fOutP, "%s", "bits 16"); //Bit width directive counts as 0 bytes
+	for(int i=0 ; i<instrsDone ; i++)
+	{//Each iteration writes 1 instr
+		fprintf(fOutP, "\n%s", instrStrings[i]);
+		bytesWritten += instrSizes[i];
+		
+		if(labelsWritten < labelCount)
+		{
+			//labelIndices[] are byte numbers that need labels after
+			//Labels are named after the index of the preceding byte
+			if(labelIndices[labelsWritten] == bytesWritten)
+			{
+				fprintf(fOutP, "\nlabel%i:", bytesWritten);
+				labelsWritten++;
+			}
+		}
+	}
 
 	//Get output file size
-	fseek(fOutP, 0L, SEEK_END); //Set file position to end
-	int fOutSz = ftell(fOutP); //Store position (size)
-	fseek(fOutP, 0L, SEEK_SET); //Return to start of file
-	
+	fseek(fOutP, 0, SEEK_END); //Set file position to end
+	int fOutSz = ftell(fOutP); //Store offset (file out size)
+
 	DEBUG_PRINT("Disassembly DONE.\n");
-	DEBUG_PRINT("Total instructions: %i\n", instrsProcessed);
+	DEBUG_PRINT("Total instructions: %i\n", instrsDone);
+	DEBUG_PRINT("Total labels: %i\n", labelCount);
 	DEBUG_PRINT("File IN size: %i\n", fInSz);
 	DEBUG_PRINT("File OUT size: %i\n", fOutSz);
 
 	//Print output file contents to stdout
 	printf("\n\n::: CONTENTS OF OUTPUT FILE :::\n");
 	printf("%s", *fOutP);
-	
-	///TODO: Compare bins
+
 	//Done.
 	fclose(fInP);
 	fclose(fOutP);
@@ -339,6 +475,29 @@ int main(int argc, char *argv[])
 }
 //END MAIN
 
+
+
+void ERROR_TERMINATE(unsigned char *inBytesP,unsigned char *instrSizes,unsigned long long int instrsDone,char msg[])
+{
+	printf("[%s]\n", msg);
+	printf("[%s]\n", msg);
+	printf("[%s]\n", msg);
+	DEBUG=true;
+	printf("[DEBUG mode activated.]\n");
+	printf("[Printing instr bytes so far...]\n\n");
+	
+	for(int i=0 ; i<instrsDone ; i++)
+	{
+		DEBUG_PRINT("[Instruction %i]\n", i+1);
+		DEBUG_printBytesIn01s(inBytesP, instrSizes[i], 0);
+		DEBUG_PRINT("\n\n");
+		inBytesP += instrSizes[i];
+	}
+	printf("Next 6 unprocessed bytes:\n");
+	DEBUG_printBytesIn01s(inBytesP, 6, 0);
+	printf("\n\n[Terminating...]\n");
+	//exit(69);
+}
 void fillRegName(char regName[], char regBitsVal, bool W)
 {
 	//                W? 01 R/M
@@ -441,7 +600,7 @@ void DEBUG_printBytesIn01s(unsigned char *startP, int size, int columns)
 		{
 			printf("\n");
 		}
-	}	
+	}
 }
 bool theseBitsMatch(unsigned char* instrP, char opString[])
 {
