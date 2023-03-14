@@ -400,7 +400,7 @@ int main(int argc, char *argv[])
 		}
 		
 		//Loop upkeep
-		DEBUG_PRINT("  Successfully disassembled -> \"%s\" [Writing...]\n", instrString);		
+		DEBUG_PRINT("  Successfully disassembled -> \"%s\" [Writing...]\n", instrStrings[instrsDone]);		
 		DEBUG_PRINT("  Instruction size: %i\n  ", instrSz);
 		DEBUG_printBytesIn01s(instrP, instrSz, 0); DEBUG_PRINT("\n");
 		instrP += instrSz;
@@ -609,7 +609,8 @@ bool theseBitsMatch(unsigned char* instrP, char opString[])
 	//chars in the string mask non-opcode bits. So "1011WReg",
 	//for example, is a valid argument for opString.
 	
-	unsigned char checkedBit = 	0b10000000;
+	//We'll bitshift checkedBit to & mask out each bit.
+	unsigned char checkedBit = 0b10000000;
 	bool bitNeedsChecking, bitMatches;
 	
 	for(int i=0 ; i<8 ; i++)
