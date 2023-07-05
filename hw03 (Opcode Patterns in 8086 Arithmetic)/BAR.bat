@@ -21,9 +21,8 @@ gcc %hwName%.c -o %hwName%.exe
 %hwName%.exe %inBIN% disassembled_output.asm
 
 echo.
-echo.
-echo.
 echo [Re-assembling for binary comparison...]
+echo.
 ::RE-assemble
 nasm.exe disassembled_output.asm
 ::Compare

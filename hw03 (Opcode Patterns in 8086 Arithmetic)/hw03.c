@@ -32,6 +32,8 @@ enum ///Formats (Compatible mnemonics are listed below each format.)
 	S3oooooooW_DaAd_DaAw, //IMM or MEM tofrom ACC (DaAd is Data||Address)
 	///MOV, ADD, SUB, CMP(data size always 1)
 //MAX size 4
+	S4oooooooo_oooooooo_Disp_Disp,
+	///aam, aad
 	S4ooooooDW_MdRegRgm_Disp_Disp, //RM to:from REG
 	///MOV, XCHG(D), ADD, SUB, CMP, OR, XOR
 	S4oooooooo_MdUSrRgm_Disp_Disp, //U=subOp RM tofrom SEGREG
@@ -40,6 +42,8 @@ enum ///Formats (Compatible mnemonics are listed below each format.)
 	///LEA, LDS, LES
 	S4oooooooW_MdSubRgm_Disp_Disp, //U=subOp RM tofrom SEGREG
 	///MOV
+	S4ooooooVW_MdSubRgm_Disp_Disp,
+	///shl, shr, sar, rol, ror, rcl, rcr
 //MAX size 6
 	S6oooooooW_DATADATA_Di_Di_Da_Da,
 	///XOR
@@ -51,7 +55,7 @@ short valFromUCharP(unsigned char *charP, bool W);
 void fillRegName(char regName[], char regBitsVal, bool W);
 void fillRmName(char rmName[], char rmBitsVal, char modBitsVal, bool W, short disp);
 void DEBUG_printBytesIn01s(unsigned char *startP, int size, int columns);
-void ERROR_TERMINATE(unsigned char *inBytesP,unsigned char *instrSizes,unsigned long long int instrsDone,unsigned char*fOutP,char msg[]);
+void ERROR_TERMINATE(unsigned char *inBytesP,unsigned char *instrSizes,unsigned long long int instrsDone,FILE*fOutP,char msg[]);
 
 unsigned long int instrsDone=0;
 unsigned long int bytesDone=0;
@@ -198,6 +202,8 @@ int main(int argc, char *argv[])
 		else if(0b00011100==(instrP[0]&0b11111110)){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"sbb");}///IMM (from) ACC
 		else if(0b00111100==(instrP[0]&0b11111110)){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"cmp");}///IMM (from) ACC
 		else if(0b10110000==(instrP[0]&0b11110000)){opForm=  S3ooooWReg_Data_Datw  ;strcpy(mnemName,"mov");}///IMM to REG
+		else if(0b11010100==instrP[0] && 0b00001010==instrP[1]){opForm=  S4oooooooo_oooooooo_Disp_Disp  ;strcpy(mnemName,"aam");}///simple
+		else if(0b11010101==instrP[0] && 0b00001010==instrP[1]){opForm=  S4oooooooo_oooooooo_Disp_Disp  ;strcpy(mnemName,"aad");}///simple
 		else if(0b10001000==(instrP[0]&0b11111100)){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"mov");}///RM to:from REG
 		else if(0b10000110==(instrP[0]&0b11111110)){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"xchg");}///always D
 		else if(0b00000000==(instrP[0]&0b11111100)){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"add");}///RM to:from REG
@@ -211,9 +217,6 @@ int main(int argc, char *argv[])
 		{
 			opForm=  S4oooooooW_MdSubRgm_Disp_Disp;
 			subOpVal = (instrP[1]&0b00111000)>>3;
-			printf("11111110 SWOOCH\n");
-			printf("11111110 SWOOCH\n");
-			printf("11111110 SWOOCH\n");
 			switch(subOpVal)
 			{
 				case 0b000:{strcpy(mnemName, "inc"); break;} //1111111w
@@ -223,13 +226,43 @@ int main(int argc, char *argv[])
 			}
 		}
 		else if(0b10001110==(instrP[0]&0b11111110)){opForm=  S4oooooooW_MdSubRgm_Disp_Disp  ;strcpy(mnemName,"pop");}///to RM (sub?)
-		else if(0b11110110==(instrP[0]&0b11111110)){opForm=  S4oooooooW_MdSubRgm_Disp_Disp  ;strcpy(mnemName,"neg");}
+		else if(0b11110110==(instrP[0]&0b11111110))        //S4oooooooW_MdSubRgm_Disp_Disp
+		{
+			opForm = S4oooooooW_MdSubRgm_Disp_Disp;
+			subOpVal = (instrP[1]&0b00111000)>>3;
+			switch(subOpVal)
+			{			
+				case 0b000:{strcpy(mnemName,"test"); break;}
+				case 0b011:{strcpy(mnemName,"neg"); break;}
+				case 0b100:{strcpy(mnemName,"mul"); break;}
+				case 0b101:{strcpy(mnemName,"imul"); break;}
+				case 0b110:{strcpy(mnemName,"div"); break;}
+				case 0b111:{strcpy(mnemName,"idiv"); break;}
+				case 0b010:{strcpy(mnemName,"not"); break;}
+				default:{printf("[ERROR selecting subOp for 1111011x opcode!]\n");}
+			}
+		}
 		else if(0b10001101==instrP[0]) /*NO MASK*/ {opForm=  S4oooooooo_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"lea");}
 		else if(0b11000101==instrP[0]) /*NO MASK*/ {opForm=  S4oooooooo_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"lds");}
 		else if(0b11000100==instrP[0]) /*NO MASK*/ {opForm=  S4oooooooo_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"les");}
+		else if(0b11010000==(instrP[0]&0b11111100))        //S4ooooooVW_MdSubRgm_Disp_Disp
+		{
+			opForm = S4ooooooVW_MdSubRgm_Disp_Disp;
+			subOpVal = (instrP[1]&0b00111000)>>3;
+			switch(subOpVal)
+			{
+				case 0b100:{strcpy(mnemName,"shl"); break;}
+				case 0b101:{strcpy(mnemName,"shr"); break;}
+				case 0b111:{strcpy(mnemName,"sar"); break;}
+				case 0b000:{strcpy(mnemName,"rol"); break;}
+				case 0b001:{strcpy(mnemName,"ror"); break;}
+				case 0b010:{strcpy(mnemName,"rcl"); break;}
+				case 0b011:{strcpy(mnemName,"rcr"); break;}
+				default:{printf("[ERROR selecting subOp for 110100vw opcode!]\n");}
+			}
+		}
 		else if(0b00110100==(instrP[0]&0b11111100)){opForm=  S6oooooooW_DATADATA_Di_Di_Da_Da;  strcpy(mnemName, "xor");}
 		else if(0b11000110==(instrP[0]&0b11111110)){opForm=  S6ooooooSW_MdSubRgm_Di_Di_Da_Da;  strcpy(mnemName, "mov");}///always S(pseudo)
-		else if(0b11110110==(instrP[0]&0b11111110)){opForm=  S6ooooooSW_MdSubRgm_Di_Di_Da_Da;  strcpy(mnemName, "test");}///always S(pseudo)
 		else if(0b10000000==(instrP[0]&0b11111100))        //S6ooooooSW_MdSubRgm_Di_Di_Da_Da
 		{
 			//add, or, adc, sbb, and, sub, adc, cmp
@@ -524,6 +557,7 @@ int main(int argc, char *argv[])
 				
 				DEBUG_PRINT("  opForm: S4oooooooW_MdSubRgm_Disp_Disp\n");
 				DEBUG_PRINT("  %s (MEM:IMM to:from ACC)\n", mnemName);
+				DEBUG_PRINT("  subOp: %i\n", subOpVal);
 				DEBUG_PRINT(modMsgs[modBitsVal]);
 				
 				//DISP value calc
@@ -592,7 +626,7 @@ int main(int argc, char *argv[])
 				sprintf(instrStrings[instrsDone], "%s %s, %s", mnemName, regName, rmName);
 			}break;
 			case S2oooooooo_LABEL: //to label
-			{
+			{///jnz and friends
 				dataOrAddr = valFromUCharP(instrP+1, USE_BYTE);
 				instrSz = 2;
 				
@@ -620,6 +654,52 @@ int main(int argc, char *argv[])
 				
 				//Build output string
 				sprintf(instrStrings[instrsDone], "%s label%i", mnemName, labelIndex);
+			}break;
+			case S4oooooooo_oooooooo_Disp_Disp:
+			{///aam, aad
+				instrSz=2;
+				
+				DEBUG_PRINT("  opForm: S4oooooooo_oooooooo_Disp_Disp\n");
+				DEBUG_PRINT("  %s (simple)\n", mnemName);
+				
+				//Build output string
+				sprintf(instrStrings[instrsDone], "%s", mnemName);
+			}break;
+			case S4ooooooVW_MdSubRgm_Disp_Disp:
+			{///shl, shr, sar, rol, ror, rcl, rcr
+				W = instrP[0]&0b00000001;
+				V = instrP[0]&0b00000010;///IGNORED
+				modBitsVal = instrP[1]>>6;
+				rmBitsVal = instrP[1]&0b00000111;
+				dispSz = modBitsVal%3;
+				instrSz = 2 + dispSz;
+				
+				DEBUG_PRINT("  opForm: S4oooooooo_oooooooo_Disp_Disp\n");
+				DEBUG_PRINT("  %s (simple)\n", mnemName);
+				
+				//DISP value calc
+				if(modBitsVal == 0b01)
+				{
+					dispVal = valFromUCharP(instrP+2, USE_BYTE);
+				}
+				else if(modBitsVal == 0b10)
+				{
+					dispVal = valFromUCharP(instrP+2, USE_WORD);
+				}
+				else if(modBitsVal==0b00 && rmBitsVal==0b110)
+				{
+					//Special DIRECT ACCESS case
+					instrSz+=2;
+					dispVal = valFromUCharP(instrP+2, USE_WORD);
+				}
+				
+				//RM name generation
+				fillRmName(rmName, rmBitsVal, modBitsVal, W, dispVal);
+				
+				///We still need this, albeit conditionally: W?"word":"byte"
+				
+				//Build output string
+				sprintf(instrStrings[instrsDone], "%s %s, %i", mnemName, rmName, dispVal);
 			}break;
 			default:
 			{///ERROR
@@ -707,7 +787,7 @@ int main(int argc, char *argv[])
 
 
 
-void ERROR_TERMINATE(unsigned char *inBytesP,unsigned char *instrSizes,unsigned long long int instrsDone,unsigned char*fOutP,char msg[])
+void ERROR_TERMINATE(unsigned char *inBytesP,unsigned char *instrSizes,unsigned long long int instrsDone,FILE*fOutP,char msg[])
 {
 	printf("[%s]\n", msg);
 	printf("[%s]\n", msg);
