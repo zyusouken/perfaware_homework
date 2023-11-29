@@ -4,7 +4,7 @@
 #include<time.h>
 #define DEBUG_PRINT if(DEBUG)printf
 #define USE_BYTE false
-#define USE_WORD true //word=2bytes
+#define USE_WORD true
 bool DEBUG=1;
 
 enum ///Formats (Compatible mnemonics are listed below each format.)
@@ -55,10 +55,10 @@ short valFromUCharP(unsigned char *charP, bool W);
 void fillRegName(char regName[], char regBitsVal, bool W);
 void fillRmName(char rmName[], char rmBitsVal, char modBitsVal, bool W, short disp);
 void DEBUG_printBytesIn01s(unsigned char *startP, int size, int columns);
-void ERROR_TERMINATE(unsigned char *inBytesP,unsigned char *instrSizes,unsigned int instrsDone,FILE*fOutP,char msg[]);
+void ERROR_TERMINATE(unsigned char *inBytesP,unsigned char *instrSizes,unsigned long long int instrsDone,FILE*fOutP,char msg[]);
 
-unsigned int instrsDone=0;
-unsigned int bytesDone=0;
+unsigned long int instrsDone=0;
+unsigned long int bytesDone=0;
 bool W, S, D, V, Z;
 bool MemAddrMode; //If false, dataOrAddr is immediate data.
 short dispVal; //For displacement (including DIRECT ACCESS)
@@ -102,10 +102,10 @@ int main(int argc, char *argv[])
 	unsigned char instrSizes[fInSz];
 	
 	//These are the bytes after which we will write labels in the final asm.
-	unsigned int labelCount=0;
-	unsigned int labelIndex;
+	unsigned long int labelCount=0;
+	unsigned long int labelIndex;
 	bool labelExists;
-	unsigned int labelIndices[fInSz];
+	unsigned long int labelIndices[fInSz];
 	
 	//Get file contents
 	unsigned char inBytes[fInSz];
@@ -137,82 +137,82 @@ int main(int argc, char *argv[])
 
 		//Set opForm, subOpVal, and mnemName
 		if(0); 
-		else if(0b11010111==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"xlat");}///PURE
-		else if(0b10011111==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"lahf");}///PURE
-		else if(0b10011110==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"sahf");}///PURE
-		else if(0b10011100==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"pushf");}///PURE 
-		else if(0b10011101==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"popf");}///PURE
-		else if(0b00110111==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"aaa");}///PURE
-		else if(0b00100111==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"daa");}///PURE
-		else if(0b00111111==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"aas");}///PURE
-		else if(0b00101111==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"das");}///PURE
-		else if(0b10011000==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"cbw");}///PURE
-		else if(0b10011001==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"cwd");}///PURE
-		else if(0b11000011==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"ret");}///PURE(within segment)
-		else if(0b11001011==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"ret");}///PURE(inter-segment)
-		else if(0b11001100==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"int");}///PURE(type3)
-		else if(0b11001110==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"into");}///PURE
-		else if(0b11001111==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"iret");}///PURE
-		else if(0b11111000==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"clc");}///PURE
-		else if(0b11110101==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"cmc");}///PURE
-		else if(0b11111001==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"stc");}///PURE
-		else if(0b11111100==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"cld");}///PURE
-		else if(0b11111101==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"std");}///PURE
-		else if(0b11111010==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"cli");}///PURE
-		else if(0b11111011==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"sti");}///PURE
-		else if(0b11110100==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"hlt");}///PURE
-		else if(0b10011011==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"wait");}///PURE
-		else if(0b11110000==instrP[0]) /*NO MASK*/ {opForm= S1oooooooo ;strcpy(mnemName,"lock");}///PURE
-		else if(0b10010000==(instrP[0]&0b11111000)){opForm= S1oooooReg ;strcpy(mnemName,"xchg");}///to:with REG
-		else if(0b01010000==(instrP[0]&0b11111000)){opForm= S1oooooReg ;strcpy(mnemName,"push");}///to:with REG
-		else if(0b01011000==(instrP[0]&0b11111000)){opForm= S1oooooReg ;strcpy(mnemName,"pop");}///to:with REG
-		else if(0b01000000==(instrP[0]&0b11111000)){opForm= S1oooooReg ;strcpy(mnemName,"inc");}///to:with REG
-		else if(0b01001000==(instrP[0]&0b11111000)){opForm= S1oooooReg ;strcpy(mnemName,"dec");}///to:with REG
-		else if(0b00000110==(instrP[0]&0b11100111)){opForm= S1oooSrooo ;strcpy(mnemName,"push");}///segment register
-		else if(0b00000111==(instrP[0]&0b11100111)){opForm= S1oooSrooo ;strcpy(mnemName,"pop");}///segment register
-		else if(0b11101100==(instrP[0]&0b11111110)){opForm= S1oooooooW ;strcpy(mnemName,"in");}///Variable port
-		else if(0b11101110==(instrP[0]&0b11111110)){opForm= S1oooooooW ;strcpy(mnemName,"out");}///Variable port
-		else if(0b01110100==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"je");}
-		else if(0b01111100==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jl");}
-		else if(0b01111110==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jle");}
-		else if(0b01110010==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jb");}
-		else if(0b01110110==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jbe");}
-		else if(0b01111010==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jp");}
-		else if(0b01110000==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jo");}
-		else if(0b01111000==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"js");}
-		else if(0b01110101==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jnz");}
-		else if(0b01111101==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jnl");}
-		else if(0b01111111==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jg");}
-		else if(0b01110011==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jnb");}
-		else if(0b01110111==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"ja");}
-		else if(0b01111011==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jnp");}
-		else if(0b01110001==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jno");}
-		else if(0b01111001==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jns");}
-		else if(0b11100010==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"loop");}
-		else if(0b11100001==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"loopz");}
-		else if(0b11100000==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"loopnz");}
-		else if(0b11100011==instrP[0]) /*NO MASK*/ {opForm= S2oooooooo_LABEL ;strcpy(mnemName,"jcxz");}
-		else if(0b11100100==(instrP[0]&0b11111110)){opForm= S2oooooooW_Data ;strcpy(mnemName,"in");}///Fixed port
-		else if(0b11100110==(instrP[0]&0b11111110)){opForm= S2oooooooW_Data ;strcpy(mnemName,"out");}///Fixed port
-		else if(0b10100000==(instrP[0]&0b11111110)){opForm= S3oooooooW_DaAd_DaAw ;strcpy(mnemName,"mov");}///MEM to ACC
-		else if(0b10100010==(instrP[0]&0b11111110)){opForm= S3oooooooW_DaAd_DaAw ;strcpy(mnemName,"mov");}///ACC to MEM
-		else if(0b00000100==(instrP[0]&0b11111110)){opForm= S3oooooooW_DaAd_DaAw ;strcpy(mnemName,"add");}///IMM to ACC
-		else if(0b00010100==(instrP[0]&0b11111110)){opForm= S3oooooooW_DaAd_DaAw ;strcpy(mnemName,"adc");}///IMM to ACC
-		else if(0b00101100==(instrP[0]&0b11111110)){opForm= S3oooooooW_DaAd_DaAw ;strcpy(mnemName,"sub");}///IMM (from) ACC
-		else if(0b00011100==(instrP[0]&0b11111110)){opForm= S3oooooooW_DaAd_DaAw ;strcpy(mnemName,"sbb");}///IMM (from) ACC
-		else if(0b00111100==(instrP[0]&0b11111110)){opForm= S3oooooooW_DaAd_DaAw ;strcpy(mnemName,"cmp");}///IMM (from) ACC
-		else if(0b10110000==(instrP[0]&0b11110000)){opForm= S3ooooWReg_Data_Datw ;strcpy(mnemName,"mov");}///IMM to REG
-		else if(0b11010100==instrP[0] && 0b00001010==instrP[1]){opForm= S4oooooooo_oooooooo_Disp_Disp  ;strcpy(mnemName,"aam");}///simple
-		else if(0b11010101==instrP[0] && 0b00001010==instrP[1]){opForm= S4oooooooo_oooooooo_Disp_Disp  ;strcpy(mnemName,"aad");}///simple
-		else if(0b10001000==(instrP[0]&0b11111100)){opForm= S4ooooooDW_MdRegRgm_Disp_Disp ;strcpy(mnemName,"mov");}///RM to:from REG
-		else if(0b10000110==(instrP[0]&0b11111110)){opForm= S4ooooooDW_MdRegRgm_Disp_Disp ;strcpy(mnemName,"xchg");}///always D
-		else if(0b00000000==(instrP[0]&0b11111100)){opForm= S4ooooooDW_MdRegRgm_Disp_Disp ;strcpy(mnemName,"add");}///RM to:from REG
-		else if(0b00010000==(instrP[0]&0b11111100)){opForm= S4ooooooDW_MdRegRgm_Disp_Disp ;strcpy(mnemName,"adc");}///RM to:from REG
-		else if(0b00101000==(instrP[0]&0b11111100)){opForm= S4ooooooDW_MdRegRgm_Disp_Disp ;strcpy(mnemName,"sub");}///RM to:from REG
-		else if(0b00011000==(instrP[0]&0b11111100)){opForm= S4ooooooDW_MdRegRgm_Disp_Disp ;strcpy(mnemName,"sbb");}///RM to:from REG
-		else if(0b00111000==(instrP[0]&0b11111100)){opForm= S4ooooooDW_MdRegRgm_Disp_Disp ;strcpy(mnemName,"cmp");}///RM to:from REG
-		else if(0b00001000==(instrP[0]&0b11111100)){opForm= S4ooooooDW_MdRegRgm_Disp_Disp ;strcpy(mnemName,"or");}///RM to:from REG
-		else if(0b00110000==(instrP[0]&0b11111100)){opForm= S4ooooooDW_MdRegRgm_Disp_Disp ;strcpy(mnemName,"xor");}///RM to:from REG
+		else if(0b11010111==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"xlat");}///PURE
+		else if(0b10011111==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"lahf");}///PURE
+		else if(0b10011110==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"sahf");}///PURE
+		else if(0b10011100==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"pushf");}///PURE 
+		else if(0b10011101==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"popf");}///PURE
+		else if(0b00110111==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"aaa");}///PURE
+		else if(0b00100111==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"daa");}///PURE
+		else if(0b00111111==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"aas");}///PURE
+		else if(0b00101111==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"das");}///PURE
+		else if(0b10011000==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"cbw");}///PURE
+		else if(0b10011001==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"cwd");}///PURE
+		else if(0b11000011==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"ret");}///PURE(within segment)
+		else if(0b11001011==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"ret");}///PURE(inter-segment)
+		else if(0b11001100==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"int");}///PURE(type3)
+		else if(0b11001110==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"into");}///PURE
+		else if(0b11001111==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"iret");}///PURE
+		else if(0b11111000==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"clc");}///PURE
+		else if(0b11110101==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"cmc");}///PURE
+		else if(0b11111001==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"stc");}///PURE
+		else if(0b11111100==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"cld");}///PURE
+		else if(0b11111101==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"std");}///PURE
+		else if(0b11111010==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"cli");}///PURE
+		else if(0b11111011==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"sti");}///PURE
+		else if(0b11110100==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"hlt");}///PURE
+		else if(0b10011011==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"wait");}///PURE
+		else if(0b11110000==instrP[0]) /*NO MASK*/ {opForm=  S1oooooooo  ;strcpy(mnemName,"lock");}///PURE
+		else if(0b10010000==(instrP[0]&0b11111000)){opForm=  S1oooooReg  ;strcpy(mnemName,"xchg");}///to:with REG
+		else if(0b01010000==(instrP[0]&0b11111000)){opForm=  S1oooooReg  ;strcpy(mnemName,"push");}///to:with REG
+		else if(0b01011000==(instrP[0]&0b11111000)){opForm=  S1oooooReg  ;strcpy(mnemName,"pop");}///to:with REG
+		else if(0b01000000==(instrP[0]&0b11111000)){opForm=  S1oooooReg  ;strcpy(mnemName,"inc");}///to:with REG
+		else if(0b01001000==(instrP[0]&0b11111000)){opForm=  S1oooooReg  ;strcpy(mnemName,"dec");}///to:with REG
+		else if(0b00000110==(instrP[0]&0b11100111)){opForm=  S1oooSrooo  ;strcpy(mnemName,"push");}///segment register
+		else if(0b00000111==(instrP[0]&0b11100111)){opForm=  S1oooSrooo  ;strcpy(mnemName,"pop");}///segment register
+		else if(0b11101100==(instrP[0]&0b11111110)){opForm=  S1oooooooW  ;strcpy(mnemName,"in");}///Variable port
+		else if(0b11101110==(instrP[0]&0b11111110)){opForm=  S1oooooooW  ;strcpy(mnemName,"out");}///Variable port
+		else if(0b01110100==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"je");}
+		else if(0b01111100==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jl");}
+		else if(0b01111110==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jle");}
+		else if(0b01110010==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jb");}
+		else if(0b01110110==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jbe");}
+		else if(0b01111010==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jp");}
+		else if(0b01110000==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jo");}
+		else if(0b01111000==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"js");}
+		else if(0b01110101==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jnz");}
+		else if(0b01111101==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jnl");}
+		else if(0b01111111==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jg");}
+		else if(0b01110011==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jnb");}
+		else if(0b01110111==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"ja");}
+		else if(0b01111011==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jnp");}
+		else if(0b01110001==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jno");}
+		else if(0b01111001==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jns");}
+		else if(0b11100010==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"loop");}
+		else if(0b11100001==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"loopz");}
+		else if(0b11100000==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"loopnz");}
+		else if(0b11100011==instrP[0]) /*NO MASK*/ {opForm=  S2oooooooo_LABEL  ;strcpy(mnemName,"jcxz");}
+		else if(0b11100100==(instrP[0]&0b11111110)){opForm=  S2oooooooW_Data  ;strcpy(mnemName,"in");}///Fixed port
+		else if(0b11100110==(instrP[0]&0b11111110)){opForm=  S2oooooooW_Data  ;strcpy(mnemName,"out");}///Fixed port
+		else if(0b10100000==(instrP[0]&0b11111110)){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"mov");}///MEM to ACC
+		else if(0b10100010==(instrP[0]&0b11111110)){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"mov");}///ACC to MEM
+		else if(0b00000100==(instrP[0]&0b11111110)){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"add");}///IMM to ACC
+		else if(0b00010100==(instrP[0]&0b11111110)){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"adc");}///IMM to ACC
+		else if(0b00101100==(instrP[0]&0b11111110)){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"sub");}///IMM (from) ACC
+		else if(0b00011100==(instrP[0]&0b11111110)){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"sbb");}///IMM (from) ACC
+		else if(0b00111100==(instrP[0]&0b11111110)){opForm=  S3oooooooW_DaAd_DaAw  ;strcpy(mnemName,"cmp");}///IMM (from) ACC
+		else if(0b10110000==(instrP[0]&0b11110000)){opForm=  S3ooooWReg_Data_Datw  ;strcpy(mnemName,"mov");}///IMM to REG
+		else if(0b11010100==instrP[0] && 0b00001010==instrP[1]){opForm=  S4oooooooo_oooooooo_Disp_Disp  ;strcpy(mnemName,"aam");}///simple
+		else if(0b11010101==instrP[0] && 0b00001010==instrP[1]){opForm=  S4oooooooo_oooooooo_Disp_Disp  ;strcpy(mnemName,"aad");}///simple
+		else if(0b10001000==(instrP[0]&0b11111100)){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"mov");}///RM to:from REG
+		else if(0b10000110==(instrP[0]&0b11111110)){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"xchg");}///always D
+		else if(0b00000000==(instrP[0]&0b11111100)){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"add");}///RM to:from REG
+		else if(0b00010000==(instrP[0]&0b11111100)){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"adc");}///RM to:from REG
+		else if(0b00101000==(instrP[0]&0b11111100)){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"sub");}///RM to:from REG
+		else if(0b00011000==(instrP[0]&0b11111100)){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"sbb");}///RM to:from REG
+		else if(0b00111000==(instrP[0]&0b11111100)){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"cmp");}///RM to:from REG
+		else if(0b00001000==(instrP[0]&0b11111100)){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"or");}///RM to:from REG
+		else if(0b00110000==(instrP[0]&0b11111100)){opForm=  S4ooooooDW_MdRegRgm_Disp_Disp  ;strcpy(mnemName,"xor");}///RM to:from REG
 		else if(0b11111110==(instrP[0]&0b11111110))        //S4oooooooW_MdSubRgm_Disp_Disp
 		{
 			opForm=  S4oooooooW_MdSubRgm_Disp_Disp;
@@ -309,7 +309,7 @@ int main(int argc, char *argv[])
 				{
 					//(2 operands)
 					sprintf(instrStrings[instrsDone], "%s ax, %s", mnemName, regName);
-					}
+				}
 				else
 				{
 					//(1 operand)
@@ -386,10 +386,10 @@ int main(int argc, char *argv[])
 				DEBUG_PRINT("  %s (RM TO:FROM REG)\n", mnemName);
 				DEBUG_PRINT("  %s\n", D?"D":"!D");
 				DEBUG_PRINT("  %s\n", W?"W":"!W");
-				DEBUG_PRINT("%s", modMsgs[modBitsVal]);
+				DEBUG_PRINT(modMsgs[modBitsVal]);
 				printf("  dispSize = %i\n", dispSz);
 				printf("  modBits = %i\n", modBitsVal);
-				printf("  modBits%%3 = %i\n", modBitsVal%3);
+				printf("  modBits%3 = %i\n", modBitsVal%3);
 				
 				//DISP value calc
 				if(modBitsVal == 0b01)
@@ -461,7 +461,7 @@ int main(int argc, char *argv[])
 				DEBUG_PRINT("  %s (IMM to RM)\n", mnemName);
 				DEBUG_PRINT("  %s\n", S?"S":"!S");
 				DEBUG_PRINT("  %s\n", W?"W":"!W");
-				DEBUG_PRINT("%s", modMsgs[modBitsVal]);
+				DEBUG_PRINT(modMsgs[modBitsVal]);
 				
 				//DISP value calc
 				if(modBitsVal == 0b01)
@@ -558,7 +558,7 @@ int main(int argc, char *argv[])
 				DEBUG_PRINT("  opForm: S4oooooooW_MdSubRgm_Disp_Disp\n");
 				DEBUG_PRINT("  %s (MEM:IMM to:from ACC)\n", mnemName);
 				DEBUG_PRINT("  subOp: %i\n", subOpVal);
-				DEBUG_PRINT("%s", modMsgs[modBitsVal]);
+				DEBUG_PRINT(modMsgs[modBitsVal]);
 				
 				//DISP value calc
 				if(modBitsVal == 0b01)
@@ -600,7 +600,7 @@ int main(int argc, char *argv[])
 			
 				DEBUG_PRINT("  opForm: S4oooooooW_MdSubRgm_Disp_Disp\n");
 				DEBUG_PRINT("  %s (MEM:IMM to:from ACC)\n", mnemName);
-				DEBUG_PRINT("%s", modMsgs[modBitsVal]);
+				DEBUG_PRINT(modMsgs[modBitsVal]);
 				
 				//DISP value calc
 				if(modBitsVal == 0b01)
@@ -716,13 +716,13 @@ int main(int argc, char *argv[])
 		bytesDone += instrSz;
 		//instrLengths[instrsDone] = strlen(instrString);
 		instrSizes[instrsDone++] = instrSz;
-		DEBUG_PRINT("  Bytes processed: %i/%i\n", (int)(instrP-inBytes), fInSz);
+		DEBUG_PRINT("  Bytes processed: %i/%i\n", instrP-inBytes, fInSz);
 	}//End of disassembling
 
 	if(labelCount)
 	{//Sort labels
 		bool labelsSorted = false;
-		unsigned  int labelBucket;
+		unsigned long int labelBucket;
 		while(!labelsSorted)
 		{
 			//Each iteration makes one swapping pass
@@ -742,8 +742,8 @@ int main(int argc, char *argv[])
 	}
 	
 	//Write to output file
-	unsigned  int bytesWritten = 0;
-	unsigned  int labelsWritten = 0;
+	unsigned long int bytesWritten = 0;
+	unsigned long int labelsWritten = 0;
 	fprintf(fOutP, "%s", "bits 16"); //Bit width directive counts as 0 bytes
 	for(int i=0 ; i<instrsDone ; i++)
 	{//Each iteration writes 1 instr
@@ -773,27 +773,21 @@ int main(int argc, char *argv[])
 	DEBUG_PRINT("File OUT size: %i\n", fOutSz);
 
 	//Print output file contents to stdout
-	//printf("\n\n::: CONTENTS OF OUTPUT FILE :::\n");
-	//printf("%s", (char[]*)*fOutP);
-	///TODO: This is broken after porting to Linux.
-	///TODO: This is broken after porting to Linux.
-	///TODO: This is broken after porting to Linux.
+	printf("\n\n::: CONTENTS OF OUTPUT FILE :::\n");
+	printf("%s", *fOutP);
 
 	//Done.
 	fclose(fInP);
 	fclose(fOutP);
 	//system("pause");
-	//DEBUG_PRINT("\n\nExecution time: %d(ms?)\n", clock()-starttime);
-	//TODO: Execution time printing is broken ever since porting to Linux.
-	//TODO: Execution time printing is broken ever since porting to Linux.
-	//TODO: Execution time printing is broken ever since porting to Linux.
+	DEBUG_PRINT("\n\nExecution time: %d(ms?)\n", clock()-starttime);
 	return 0;
 }
 //END MAIN
 
 
 
-void ERROR_TERMINATE(unsigned char *inBytesP,unsigned char *instrSizes,unsigned int instrsDone,FILE*fOutP,char msg[])
+void ERROR_TERMINATE(unsigned char *inBytesP,unsigned char *instrSizes,unsigned long long int instrsDone,FILE*fOutP,char msg[])
 {
 	printf("[%s]\n", msg);
 	printf("[%s]\n", msg);
@@ -813,11 +807,8 @@ void ERROR_TERMINATE(unsigned char *inBytesP,unsigned char *instrSizes,unsigned 
 	DEBUG_printBytesIn01s(inBytesP, 6, 0);
 	
 	//Print output file contents to stdout
-	//printf("\n\n::: CONTENTS OF OUTPUT FILE :::\n");
-	//printf("%s", *fOutP);
-	///TODO: File contents printing is broken after porting to Linux.
-	///TODO: File contents printing is broken after porting to Linux.
-	///TODO: File contents printing is broken after porting to Linux.
+	printf("\n\n::: CONTENTS OF OUTPUT FILE :::\n");
+	printf("%s", *fOutP);
 	
 	printf("\n\n[Terminating...]\n");
 	//exit(69);
@@ -873,12 +864,12 @@ void fillRmName(char rmName[], char rmBitsVal, char modBitsVal, bool W, short di
 		{
 			if(dispDA >= 0)
 			{
-				strcat(rmName, " + ");
+				strncat(rmName, " + ", 3);
 			}
 			else
 			{
 				dispDA = dispDA * (-1);
-				strcat(rmName, " - ");
+				strncat(rmName, " - ", 3);
 			}
 			//conc displacement as string
 			char dispString[8];
